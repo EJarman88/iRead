@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Reader</title>
+<style>
+  :root {
+    --deep-space: #0b1024;
+    --panel: #131a35;
+    --star: #ffe9a8;
+    --nebula: #7c8cff;
+    --nebula-soft: #3d4a8f;
+    --success: #6bdc9c;
+    --text: #eef0ff;
+    --text-dim: #a8afd6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: radial-gradient(ellipse at top, #1a2150 0%, var(--deep-space) 60%);
+    font-family: 'Baloo 2', 'Comic Sans MS', system-ui, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+  #stars {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+  .star {
+    position: absolute; background: var(--star); border-radius: 50%;
+    opacity: 0.6; animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle { 0%,100% { opacity: .2; } 50% { opacity: .9; } }
+
+  main {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; padding: 24px; text-align: center;
+  }
+
+  .mascot {
+    font-size: 56px; margin-bottom: 8px;
+    filter: drop-shadow(0 0 12px rgba(124,140,255,0.6));
+    animation: float 4s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-8px);} }
+
+  .prompt-panel {
+    background: var(--panel);
+    border: 2px solid var(--nebula-soft);
+    border-radius: 28px;
+    padding: 48px 64px;
+    box-shadow: 0 0 40px rgba(124,140,255,0.25), inset 0 0 60px rgba(124,140,255,0.05);
+    min-width: 280px;
+    transition: transform 0.2s ease, border-color 0.3s ease;
+  }
+  .prompt-panel.listening {
+    border-color: var(--star);
+    box-shadow: 0 0 50px rgba(255,233,168,0.35), inset 0 0 60px rgba(255,233,168,0.08);
+  }
+  .prompt-panel.correct {
+    border-color: var(--success);
+    box-shadow: 0 0 50px rgba(107,220,156,0.4);
+  }
+
+  .word {
+    font-size: 72px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .status-line {
+    margin-top: 28px;
+    font-size: 20px;
+    color: var(--text-dim);
+    min-height: 28px;
+  }
+
+  .mic-orb {
+    margin-top: 32px;
+    width: 90px; height: 90px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #9ba7ff, var(--nebula));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 0 0 rgba(124,140,255,0.6);
+    transition: transform 0.15s ease;
+  }
+  .mic-orb:active { transform: scale(0.94); }
+  .mic-orb.armed {
+    animation: pulse 1.4s ease-out infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(124,140,255,0.5); }
+    70% { box-shadow: 0 0 0 26px rgba(124,140,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(124,140,255,0); }
+  }
+
+  .star-trail {
+    display: flex; gap: 10px; margin-top: 36px;
+  }
+  .star-trail span {
+    width: 14px; height: 14px;
+    background: var(--nebula-soft);
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    transition: background 0.4s ease, transform 0.4s ease;
+  }
+  .star-trail span.lit {
+    background: var(--star);
+    transform: scale(1.3);
+  }
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<main>
+  <div class="mascot">🚀</div>
+  <div class="prompt-panel" id="promptPanel">
+    <p class="word" id="wordDisplay">ready</p>
+    <div class="status-line" id="statusLine">Tap the orb, then say the word</div>
+    <button class="mic-orb" id="micOrb" aria-label="Start listening">🎤</button>
+  </div>
+  <div class="star-trail" id="starTrail"></div>
+</main>
+
+<script>
+/* ---------- Config ---------- */
+const WORKER_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/score";
+// Word list for this session — in production this comes from the Worker (wordlist + spaced-repetition selection).
+// Hardcoded here for local testing of the drill loop only.
+const SESSION_WORDS = ["the", "said", "was", "come", "friend"];
+
+let wordIndex = 0;
+let mediaRecorder, audioChunks = [];
+let promptShownAt = 0;
+let vadDetected = false;
+let audioContext, analyser, vadRAF;
+
+const wordDisplay = document.getElementById("wordDisplay");
+const statusLine = document.getElementById("statusLine");
+const micOrb = document.getElementById("micOrb");
+const promptPanel = document.getElementById("promptPanel");
+const starTrail = document.getElementById("starTrail");
+
+/* Starfield background */
+(function makeStars() {
+  const field = document.getElementById("stars");
+  for (let i = 0; i < 60; i++) {
+    const s = document.createElement("div");
+    s.className = "star";
+    const size = Math.random() * 2 + 1;
+    s.style.width = s.style.height = size + "px";
+    s.style.left = Math.random() * 100 + "%";
+    s.style.top = Math.random() * 100 + "%";
+    s.style.animationDelay = (Math.random() * 3) + "s";
+    field.appendChild(s);
+  }
+})();
+
+function buildStarTrail() {
+  starTrail.innerHTML = "";
+  SESSION_WORDS.forEach(() => {
+    const s = document.createElement("span");
+    starTrail.appendChild(s);
+  });
+}
+buildStarTrail();
+
+function showWord(word) {
+  wordDisplay.textContent = word;
+  statusLine.textContent = "Tap the orb, then say the word";
+  promptPanel.classList.remove("correct", "listening");
+  promptShownAt = performance.now(); // prompt-appears timestamp: VAD latency baseline
+}
+
+showWord(SESSION_WORDS[wordIndex]);
+
+micOrb.addEventListener("click", startListening);
+
+async function startListening() {
+  if (micOrb.disabled) return;
+  micOrb.disabled = true;
+  micOrb.classList.add("armed");
+  promptPanel.classList.add("listening");
+  statusLine.textContent = "Listening...";
+  vadDetected = false;
+  audioChunks = [];
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    setupVAD(stream);
+
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      cancelAnimationFrame(vadRAF);
+      if (audioContext) audioContext.close();
+      handleRecordingComplete();
+    };
+    mediaRecorder.start();
+
+    // Safety cutoff so a silent mic doesn't hang forever
+    setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+    }, 6000);
+  } catch (err) {
+    statusLine.textContent = "Couldn't access the microphone";
+    resetOrb();
+  }
+}
+
+/* Local voice-activity detection: timing is fully decoupled from Whisper's correctness
+   check, which happens later server-side (per the doc's scoring pipeline principle). */
+function setupVAD(stream) {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(stream);
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const THRESHOLD = 22; // tuned empirically; revisit during calibration period
+
+  function checkLevel() {
+    analyser.getByteFrequencyData(data);
+    const avg = data.reduce((a, b) => a + b, 0) / data.length;
+    if (!vadDetected && avg > THRESHOLD) {
+      vadDetected = true;
+      window.__latencyMs = Math.round(performance.now() - promptShownAt);
+      // Stop shortly after speech onset, giving room to capture the full word.
+      setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+      }, 1200);
+    }
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      vadRAF = requestAnimationFrame(checkLevel);
+    }
+  }
+  vadRAF = requestAnimationFrame(checkLevel);
+}
+
+async function handleRecordingComplete() {
+  micOrb.classList.remove("armed");
+  statusLine.textContent = "Checking...";
+
+  const blob = new Blob(audioChunks, { type: "audio/webm" });
+  const targetWord = SESSION_WORDS[wordIndex];
+  const latencyMs = window.__latencyMs ?? null;
+
+  try {
+    const formData = new FormData();
+    formData.append("audio", blob, "attempt.webm");
+    formData.append("targetWord", targetWord);
+    formData.append("latencyMs", latencyMs ?? "");
+
+    const res = await fetch(WORKER_ENDPOINT, { method: "POST", body: formData });
+    const result = await res.json();
+    // Expected shape: { correct: boolean, transcript: string }
+    handleResult(result.correct);
+  } catch (err) {
+    statusLine.textContent = "Hmm, that didn't send. Try again!";
+    resetOrb();
+  }
+}
+
+function handleResult(correct) {
+  if (correct) {
+    promptPanel.classList.add("correct");
+    statusLine.textContent = "Nice reading! 🌟";
+    lightStar(wordIndex);
+    setTimeout(nextWord, 1300);
+  } else {
+    // No "wrong" penalty tone — gentle retry, no fail state, per gamification rules.
+    statusLine.textContent = "Let's try that one again";
+    setTimeout(resetOrb, 1000);
+  }
+}
+
+function lightStar(i) {
+  const stars = starTrail.querySelectorAll("span");
+  if (stars[i]) stars[i].classList.add("lit");
+}
+
+function nextWord() {
+  wordIndex++;
+  if (wordIndex >= SESSION_WORDS.length) {
+    wordDisplay.textContent = "🎉";
+    statusLine.textContent = "Session complete! Great work, astronaut.";
+    micOrb.style.display = "none";
+    return;
+  }
+  showWord(SESSION_WORDS[wordIndex]);
+  resetOrb();
+}
+
+function resetOrb() {
+  micOrb.disabled = false;
+  micOrb.classList.remove("armed");
+  promptPanel.classList.remove("listening", "correct");
+}
+</script>
+</body>
+</html>
