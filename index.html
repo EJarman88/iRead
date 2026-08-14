@@ -434,11 +434,15 @@ async function handleRecordingComplete(samples, sampleRate) {
         ? `${result.weakestPhoneme.phoneme}=${result.weakestPhoneme.accuracy}`
         : "n/a";
       const d = result.debug || {};
+      const syllablesStr = Array.isArray(result.syllables)
+        ? result.syllables.map((s) => s.grapheme).join("-") || "(none)"
+        : "(missing from response)";
       debugLine.textContent =
-        `word="${targetWord}" correct=${result.correct} heard="${result.transcript || ""}"\n` +
+        `word="${targetWord}" attempt#${wordAttemptCount + 1} correct=${result.correct} heard="${result.transcript || ""}"\n` +
         `wordAccuracy=${result.wordAccuracy} weakestPhoneme=${weakest}\n` +
         `errorType=${d.wordErrorType} recognitionStatus=${d.recognitionStatus}\n` +
-        `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}`;
+        `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}\n` +
+        `syllables=${syllablesStr} (breakdown shows starting attempt #2)`;
     }
     handleResult(result.correct, result.weakestPhoneme, result.syllables);
   } catch (err) {
