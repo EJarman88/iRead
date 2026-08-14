@@ -182,9 +182,14 @@ function unlockAudioPlayback() {
   ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
 }
 
-async function playWord(word, rate) {
+// `phonemes` (optional): space-separated SAPI codes forcing exact pronunciation of an
+// isolated fragment, instead of letting TTS guess from `word`'s raw spelling — needed
+// for syllable pieces that aren't valid English spelling on their own.
+async function playWord(word, rate, phonemes) {
   try {
-    const res = await fetch(`${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate}`);
+    let url = `${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate}`;
+    if (phonemes) url += `&phonemes=${encodeURIComponent(phonemes)}`;
+    const res = await fetch(url);
     if (!res.ok) return;
     const blob = await res.blob();
     ttsPlayer.src = URL.createObjectURL(blob);
@@ -249,10 +254,15 @@ function showWord(word) {
 // "Grapheme" per syllable (e.g. cir/cum/stance), not a phonetic symbol — a decoding
 // aid shown only as a hint after he's struggled with a word, never up front.
 // Returns whether a breakdown was actually rendered (false for single-syllable words).
+// Each pill carries its SAPI phonemes as a data attribute so tapping it can force
+// correct pronunciation via SSML rather than letting TTS guess from the raw spelling.
 function showSyllableBreakdown(syllables) {
   if (!syllables || syllables.length < 2) return false; // nothing to break down
   wordDisplay.innerHTML = syllables
-    .map((s, i) => `<span class="syllable c${i % 2}">${escapeHtml(s.grapheme)}</span>`)
+    .map(
+      (s, i) =>
+        `<span class="syllable c${i % 2}" data-phonemes="${escapeHtml(s.sapiPhonemes || "")}">${escapeHtml(s.grapheme)}</span>`
+    )
     .join("");
   wordDisplay.classList.add("syllable-mode");
   return true;
@@ -266,7 +276,7 @@ function escapeHtml(str) {
 // working across every re-render of the syllable spans.
 wordDisplay.addEventListener("click", (e) => {
   const chunk = e.target.closest(".syllable");
-  if (chunk) playWord(chunk.textContent, "slow");
+  if (chunk) playWord(chunk.textContent, "slow", chunk.dataset.phonemes);
 });
 
 micOrb.addEventListener("click", startListening);

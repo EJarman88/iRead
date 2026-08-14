@@ -18,12 +18,13 @@
  * strict, so a mispronounced-but-recognizable word (e.g. "said" as "sah-EED") is caught rather
  * than being auto-corrected to the target word the way a plain transcription API would.
  *
- * Route: GET /api/tts?word=<word>&rate=slow|normal
- *   Returns audio/mpeg — the target word spoken via Azure TTS (reuses the same Speech
- *   resource as scoring). Used for the "listen for the sound" hint on a second miss.
- *   Isolated single-phoneme audio isn't attempted here — TTS engines can't reliably
- *   produce a standalone consonant sound, so the reliable version of "listen for it"
- *   is the whole word spoken slowly.
+ * Route: GET /api/tts?word=<word>&rate=slow|normal&phonemes=<space-separated SAPI codes>
+ *   Returns audio/mpeg — spoken via Azure TTS (reuses the same Speech resource as
+ *   scoring). Used for the whole-word "listen for the sound" hint (attempt 4+) and for
+ *   tap-to-hear syllable pills (attempts 2-3). When `phonemes` is given, pronunciation
+ *   is forced via an SSML <phoneme alphabet="sapi"> tag instead of guessed from `word`'s
+ *   spelling — needed for isolated syllable fragments that aren't valid English spelling
+ *   on their own (plain-text TTS on e.g. "dence" or a lone "i" mispronounces them).
  *
  * Route: GET /api/sight-word/session-words
  *   Public, no gate. Returns { words: string[], source } — the word set for a drill
@@ -279,6 +280,13 @@ async function handleTTS(request, env) {
     const url = new URL(request.url);
     const word = (url.searchParams.get("word") || "").toString().trim();
     const rate = url.searchParams.get("rate") === "slow" ? "-40%" : "0%";
+    // Optional: space-separated SAPI phoneme codes (Azure's default phoneme alphabet,
+    // matching what the recognizer returns) forcing exact pronunciation instead of
+    // letting TTS guess from the spelled text — needed for isolated syllable/word
+    // fragments that aren't valid English spelling on their own (e.g. "dence").
+    // Whitelisted to letters/digits/spaces since it's going straight into an SSML attribute.
+    const phonemesRaw = (url.searchParams.get("phonemes") || "").toString().trim();
+    const phonemes = phonemesRaw.replace(/[^a-zA-Z0-9 ]/g, "").trim();
 
     if (!word) {
       return jsonResponse({ error: "Missing word" }, 400);
@@ -290,9 +298,12 @@ async function handleTTS(request, env) {
       return jsonResponse({ error: "Missing AZURE_SPEECH_KEY or AZURE_SPEECH_REGION binding" }, 500);
     }
 
+    const innerContent = phonemes
+      ? `<phoneme alphabet="sapi" ph="${phonemes}">${escapeXml(word)}</phoneme>`
+      : escapeXml(word);
     const ssml =
       `<speak version="1.0" xml:lang="en-US">` +
-      `<voice name="en-US-JennyNeural"><prosody rate="${rate}">${escapeXml(word)}</prosody></voice>` +
+      `<voice name="en-US-JennyNeural"><prosody rate="${rate}">${innerContent}</prosody></voice>` +
       `</speak>`;
 
     let res;
@@ -426,12 +437,32 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
   // Syllables carry a "Grapheme" — the actual spelled-out chunk (e.g. "cir"/"cum"/"stance"),
   // not a phonetic symbol — which is what lets the client show a kid-legible breakdown
   // instead of Azure's raw phoneme alphabet.
+  //
+  // sapiPhonemes reconstructs that same syllable's phonemes for TTS use instead: each
+  // phoneme and syllable carries its own Offset/Duration, and a syllable's range spans
+  // its phonemes' offsets, so grouping by offset gives the SAPI phoneme sequence for
+  // just that syllable. Feeding that back into Azure TTS via an SSML <phoneme> tag
+  // (same alphabet Azure's own recognizer used) forces correct pronunciation of an
+  // isolated fragment — plain-text TTS on a fragment like "dence" or a single letter
+  // like "i" guesses at spelling and gets it wrong (confirmed live: "i" read as the
+  // word "eye", "dence" read as "denkay").
   const syllables = [];
   (best.Words || []).forEach((w) => {
+    const wordPhonemes = (w.Phonemes || []).map((p) => ({
+      phoneme: p.Phoneme,
+      offset: typeof p.Offset === "number" ? p.Offset : 0,
+    }));
     (w.Syllables || []).forEach((s) => {
+      const sylOffset = typeof s.Offset === "number" ? s.Offset : 0;
+      const sylEnd = sylOffset + (typeof s.Duration === "number" ? s.Duration : 0);
+      const sapiPhonemes = wordPhonemes
+        .filter((p) => p.offset >= sylOffset && p.offset < sylEnd)
+        .map((p) => p.phoneme)
+        .join(" ");
       syllables.push({
         grapheme: s.Grapheme || s.Syllable || "",
         accuracy: typeof s.AccuracyScore === "number" ? s.AccuracyScore : null,
+        sapiPhonemes,
       });
     });
   });
