@@ -90,6 +90,15 @@ async function handleScore(request, env) {
       transcript: assessment.transcript,
       wordAccuracy: assessment.wordAccuracy,
       weakestPhoneme: weakestPhoneme ? { phoneme: weakestPhoneme.phoneme, accuracy: weakestPhoneme.accuracy } : null,
+      // Diagnostic fields (not used by the correctness gate) — helps tell "badly
+      // pronounced" apart from "alignment/miscue mismatch" while calibrating.
+      debug: {
+        recognitionStatus: assessment.recognitionStatus,
+        wordErrorType: assessment.wordErrorType,
+        fluencyScore: assessment.fluencyScore,
+        completenessScore: assessment.completenessScore,
+        pronScore: assessment.pronScore,
+      },
     });
   } catch (err) {
     console.error("Scoring error message:", err && err.message);
@@ -215,7 +224,16 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
 
   if (data.RecognitionStatus !== "Success" || !data.NBest || !data.NBest.length) {
     // No speech recognized at all (silence, too quiet, etc.)
-    return { transcript: "", wordAccuracy: 0, phonemes: [] };
+    return {
+      transcript: "",
+      wordAccuracy: 0,
+      phonemes: [],
+      recognitionStatus: data.RecognitionStatus || null,
+      wordErrorType: null,
+      fluencyScore: null,
+      completenessScore: null,
+      pronScore: null,
+    };
   }
 
   const best = data.NBest[0];
@@ -233,7 +251,22 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     });
   });
 
-  return { transcript, wordAccuracy, phonemes };
+  // ErrorType (from EnableMiscue) flags a word as "Insertion" when it's recognized
+  // but doesn't align to the reference text — insertions get AccuracyScore forced to
+  // 0 regardless of how well the word was actually said. Surfacing this to diagnose
+  // whether a 0 score means "badly pronounced" or "alignment mismatch."
+  const wordErrorType = best.Words && best.Words[0] ? best.Words[0].ErrorType || null : null;
+
+  return {
+    transcript,
+    wordAccuracy,
+    phonemes,
+    recognitionStatus: data.RecognitionStatus,
+    wordErrorType,
+    fluencyScore: best.PronunciationAssessment ? best.PronunciationAssessment.FluencyScore ?? null : null,
+    completenessScore: best.PronunciationAssessment ? best.PronunciationAssessment.CompletenessScore ?? null : null,
+    pronScore: best.PronunciationAssessment ? best.PronunciationAssessment.PronScore ?? null : null,
+  };
 }
 
 function base64Encode(str) {

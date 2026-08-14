@@ -386,9 +386,12 @@ async function handleRecordingComplete(samples, sampleRate) {
       const weakest = result.weakestPhoneme
         ? `${result.weakestPhoneme.phoneme}=${result.weakestPhoneme.accuracy}`
         : "n/a";
+      const d = result.debug || {};
       debugLine.textContent =
-        `word="${targetWord}" correct=${result.correct} heard="${result.transcript || ""}" ` +
-        `wordAccuracy=${result.wordAccuracy} weakestPhoneme=${weakest}`;
+        `word="${targetWord}" correct=${result.correct} heard="${result.transcript || ""}"\n` +
+        `wordAccuracy=${result.wordAccuracy} weakestPhoneme=${weakest}\n` +
+        `errorType=${d.wordErrorType} recognitionStatus=${d.recognitionStatus}\n` +
+        `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}`;
     }
     handleResult(result.correct, result.weakestPhoneme);
   } catch (err) {
