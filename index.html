@@ -83,7 +83,10 @@
   .syllable {
     padding: 2px 10px;
     border-radius: 12px;
+    cursor: pointer;
+    transition: transform 0.12s ease;
   }
+  .syllable:active { transform: scale(0.92); }
   .syllable.c0 { background: rgba(255,233,168,0.18); color: var(--star); }
   .syllable.c1 { background: rgba(124,140,255,0.22); color: var(--nebula); }
 
@@ -242,20 +245,29 @@ function showWord(word) {
   wordAttemptCount = 0;
 }
 
-// Renders the word as color-coded syllable chunks using Azure's spelled-out
+// Renders the word as color-coded, tappable syllable chunks using Azure's spelled-out
 // "Grapheme" per syllable (e.g. cir/cum/stance), not a phonetic symbol — a decoding
 // aid shown only as a hint after he's struggled with a word, never up front.
+// Returns whether a breakdown was actually rendered (false for single-syllable words).
 function showSyllableBreakdown(syllables) {
-  if (!syllables || syllables.length < 2) return; // nothing to break down
+  if (!syllables || syllables.length < 2) return false; // nothing to break down
   wordDisplay.innerHTML = syllables
     .map((s, i) => `<span class="syllable c${i % 2}">${escapeHtml(s.grapheme)}</span>`)
     .join("");
   wordDisplay.classList.add("syllable-mode");
+  return true;
 }
 
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+// Tap a syllable chunk to hear just that piece — event delegation so this keeps
+// working across every re-render of the syllable spans.
+wordDisplay.addEventListener("click", (e) => {
+  const chunk = e.target.closest(".syllable");
+  if (chunk) playWord(chunk.textContent, "slow");
+});
 
 micOrb.addEventListener("click", startListening);
 
@@ -466,15 +478,25 @@ function handleResult(correct, weakestPhoneme, syllables) {
     // First miss: gentle nudge only, no breakdown yet — avoid overwhelming on the first try.
     statusLine.textContent = "Let's try that one again";
     setTimeout(resetOrb, 1200);
+    return;
+  }
+
+  const hasBreakdown = showSyllableBreakdown(syllables);
+
+  if (hasBreakdown && wordAttemptCount <= 3) {
+    // Attempts 2-3 on a multi-syllable word: show the pieces and let him tap them
+    // himself first — no auto-play — so he's driving the exploration before we
+    // just tell him the whole word outright.
+    statusLine.textContent = weakestPhoneme
+      ? `Listen for the "${weakestPhoneme.phoneme}" sound — or tap a piece below`
+      : "Tap a piece below to hear it";
+    setTimeout(resetOrb, 2200);
   } else {
-    // Second+ miss: point out the specific sound that needs work, break the word into
-    // syllable chunks so he can see it in pieces, and say it slowly so there's
-    // something to actually listen to and sound out against.
+    // Attempt 4+, or a single-syllable word with nothing to tap: just say it slowly.
     const soundHint = weakestPhoneme
       ? `Listen for the "${weakestPhoneme.phoneme}" sound`
       : "Let's sound it out together";
     statusLine.textContent = soundHint;
-    showSyllableBreakdown(syllables);
     playWord(SESSION_WORDS[wordIndex], "slow");
     setTimeout(resetOrb, 2200);
   }
