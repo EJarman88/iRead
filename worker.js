@@ -47,9 +47,13 @@
 
 const KV_PREFIX = "reading:dustin:";
 
-// Strict thresholds — every phoneme must clear this, not just the overall word score.
 const WORD_SCORE_THRESHOLD = 80; // 0-100, Azure's AccuracyScore for the whole word
-const PHONEME_SCORE_THRESHOLD = 60; // 0-100, weakest individual phoneme allowed
+const PHONEME_SCORE_THRESHOLD = 60; // 0-100, below this a phoneme counts as "weak"
+// Up to this many weak phonemes are forgiven on an otherwise-strong word (calibrated
+// against a real attempt: "conclude" scored 96 word/100 fluency/100 completeness but
+// had one phoneme at 2 — requiring literally every phoneme to pass failed a
+// near-perfect read over one trailing/mumbled sound).
+const MAX_FORGIVABLE_WEAK_PHONEMES = 1;
 
 const DEFAULT_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
 const SESSION_WORD_COUNT = 5;
@@ -225,10 +229,12 @@ async function handleScore(request, env) {
     // 1. Send audio + target word to Azure for phoneme-level pronunciation assessment
     const assessment = await assessPronunciation(audio, targetWord, env.AZURE_SPEECH_KEY, env.AZURE_SPEECH_REGION);
 
-    // 2. Strict correctness: overall word score AND every phoneme must clear their thresholds
+    // 2. Correctness: overall word score must clear its bar, and at most one phoneme
+    // is allowed to fall short — forgives a single weak/trailing sound on an
+    // otherwise-strong word without going soft on genuine multi-sound struggles.
     const wordPassed = assessment.wordAccuracy >= WORD_SCORE_THRESHOLD;
-    const allPhonemesPassed = assessment.phonemes.every((p) => p.accuracy >= PHONEME_SCORE_THRESHOLD);
-    const correct = wordPassed && allPhonemesPassed;
+    const weakPhonemeCount = assessment.phonemes.filter((p) => p.accuracy < PHONEME_SCORE_THRESHOLD).length;
+    const correct = wordPassed && weakPhonemeCount <= MAX_FORGIVABLE_WEAK_PHONEMES;
 
     // Weakest phoneme — used by the client to show "which sound was off" on a second miss
     const weakestPhoneme = assessment.phonemes.length
