@@ -24,6 +24,25 @@
  *   Isolated single-phoneme audio isn't attempted here — TTS engines can't reliably
  *   produce a standalone consonant sound, so the reliable version of "listen for it"
  *   is the whole word spoken slowly.
+ *
+ * Route: GET /api/sight-word/session-words
+ *   Public, no gate. Returns { words: string[], source } — the word set for a drill
+ *   session, pulled from whatever the admin has loaded into reading:dustin:wordlist:*.
+ *   No adaptive/spaced-repetition selection yet (that's a later build step per the
+ *   project doc) — just a random sample across everything loaded so far. Falls back
+ *   to a small built-in default list if nothing's been loaded yet.
+ *
+ * Route: GET /api/admin/wordlist
+ *   Requires header X-Admin-Passcode matching the ADMIN_PASSCODE secret binding.
+ *   Returns { wordlists: [{ source, wordCount, updatedAt }] } — existing batches.
+ *
+ * Route: POST /api/admin/wordlist
+ *   Requires header X-Admin-Passcode. JSON body: { source, words }, where `words` is
+ *   raw pasted text (newline or comma separated). Parses, dedupes, and writes to
+ *   reading:dustin:wordlist:{source}.
+ *
+ * Additional binding expected:
+ *   ADMIN_PASSCODE - encrypted secret, shared passcode gating the /api/admin/* routes
  */
 
 const KV_PREFIX = "reading:dustin:";
@@ -31,6 +50,9 @@ const KV_PREFIX = "reading:dustin:";
 // Strict thresholds — every phoneme must clear this, not just the overall word score.
 const WORD_SCORE_THRESHOLD = 80; // 0-100, Azure's AccuracyScore for the whole word
 const PHONEME_SCORE_THRESHOLD = 60; // 0-100, weakest individual phoneme allowed
+
+const DEFAULT_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
+const SESSION_WORD_COUNT = 5;
 
 export default {
   async fetch(request, env, ctx) {
@@ -48,9 +70,145 @@ export default {
       return withCors(await handleTTS(request, env));
     }
 
+    if (url.pathname === "/api/sight-word/session-words" && request.method === "GET") {
+      return withCors(await handleSessionWords(request, env));
+    }
+
+    if (url.pathname === "/api/admin/wordlist" && request.method === "GET") {
+      return withCors(await handleAdminListWordlists(request, env));
+    }
+
+    if (url.pathname === "/api/admin/wordlist" && request.method === "POST") {
+      return withCors(await handleAdminAddWordlist(request, env));
+    }
+
     return withCors(new Response("Not found", { status: 404 }));
   },
 };
+
+function isAdminAuthorized(request, env) {
+  const expected = (env.ADMIN_PASSCODE || "").trim();
+  if (!expected) return false; // fail closed if the secret was never configured
+  const provided = (request.headers.get("X-Admin-Passcode") || "").trim();
+  return provided.length > 0 && provided === expected;
+}
+
+function parseWordList(rawText) {
+  const seen = new Set();
+  const words = [];
+  rawText
+    .split(/[\n,]+/)
+    .map((w) => w.trim().toLowerCase())
+    .filter((w) => w.length > 0 && /^[a-z'-]+$/.test(w))
+    .forEach((w) => {
+      if (!seen.has(w)) {
+        seen.add(w);
+        words.push(w);
+      }
+    });
+  return words;
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+async function handleSessionWords(request, env) {
+  try {
+    const listResult = await env.TUTOR_KV.list({ prefix: `${KV_PREFIX}wordlist:` });
+
+    if (!listResult.keys.length) {
+      return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default" });
+    }
+
+    const seen = new Set();
+    const allWords = [];
+    for (const k of listResult.keys) {
+      const raw = await env.TUTOR_KV.get(k.name);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      (parsed.words || []).forEach((w) => {
+        if (!seen.has(w)) {
+          seen.add(w);
+          allWords.push(w);
+        }
+      });
+    }
+
+    if (!allWords.length) {
+      return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default" });
+    }
+
+    // Bootstrap phase: no adaptive/spaced-repetition selection yet (that's a later
+    // build step) — just a random sample across everything the admin has loaded.
+    const selected = shuffle(allWords).slice(0, Math.min(SESSION_WORD_COUNT, allWords.length));
+    return jsonResponse({ words: selected, source: "wordlist" });
+  } catch (err) {
+    console.error("Session words error:", err && err.message);
+    return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default-error" });
+  }
+}
+
+async function handleAdminListWordlists(request, env) {
+  if (!isAdminAuthorized(request, env)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  try {
+    const listResult = await env.TUTOR_KV.list({ prefix: `${KV_PREFIX}wordlist:` });
+    const wordlists = await Promise.all(
+      listResult.keys.map(async (k) => {
+        const raw = await env.TUTOR_KV.get(k.name);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return {
+          source: parsed ? parsed.source : k.name.replace(`${KV_PREFIX}wordlist:`, ""),
+          wordCount: parsed && parsed.words ? parsed.words.length : 0,
+          updatedAt: parsed ? parsed.updatedAt : null,
+        };
+      })
+    );
+    return jsonResponse({ wordlists });
+  } catch (err) {
+    console.error("Admin list wordlists error:", err && err.message);
+    return jsonResponse({ error: "Failed to list word lists", detail: err && err.message }, 500);
+  }
+}
+
+async function handleAdminAddWordlist(request, env) {
+  if (!isAdminAuthorized(request, env)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  try {
+    const body = await request.json();
+    const source = (body.source || "")
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-");
+    const rawText = (body.words || "").toString();
+
+    if (!source || !rawText.trim()) {
+      return jsonResponse({ error: "Missing source or words" }, 400);
+    }
+
+    const words = parseWordList(rawText);
+    if (!words.length) {
+      return jsonResponse({ error: "No valid words found" }, 400);
+    }
+
+    const key = `${KV_PREFIX}wordlist:${source}`;
+    await env.TUTOR_KV.put(key, JSON.stringify({ source, words, updatedAt: new Date().toISOString() }));
+
+    return jsonResponse({ source, wordCount: words.length, words });
+  } catch (err) {
+    console.error("Admin add wordlist error:", err && err.message);
+    return jsonResponse({ error: "Failed to save word list", detail: err && err.message }, 500);
+  }
+}
 
 async function handleScore(request, env) {
   try {

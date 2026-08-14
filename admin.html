@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Reader — Admin</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --ink-dim: #6b7280;
+    --line: #e2e4e9;
+    --accent: #3d5af1;
+    --accent-hover: #2f46c9;
+    --error: #c0392b;
+    --success: #1c7c4c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 24px 16px 64px;
+  }
+  .wrap {
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--ink-dim);
+    font-size: 14px;
+    margin: 0 0 24px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  input[type="text"], input[type="password"], textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--ink);
+    background: var(--panel);
+  }
+  textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+  .field {
+    margin-bottom: 16px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--ink-dim);
+    margin-top: 4px;
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary {
+    background: transparent;
+    color: var(--ink-dim);
+    border: 1px solid var(--line);
+  }
+  button.secondary:hover { background: var(--bg); }
+  .status {
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .status.error { color: var(--error); }
+  .status.success { color: var(--success); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  th { color: var(--ink-dim); font-weight: 600; font-size: 12px; }
+  .empty-note { color: var(--ink-dim); font-size: 13px; }
+  .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+  .file-input { font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="gate" class="panel">
+    <h1>Star Reader — Admin</h1>
+    <p class="subtitle">Enter the admin passcode to continue.</p>
+    <div class="field">
+      <label for="passcodeInput">Passcode</label>
+      <input type="password" id="passcodeInput" autocomplete="off">
+    </div>
+    <button id="unlockBtn">Unlock</button>
+    <div class="status error" id="gateStatus"></div>
+  </div>
+
+  <div id="admin" style="display:none;">
+    <div class="row">
+      <h1>Star Reader — Admin</h1>
+      <button class="secondary" id="logoutBtn">Log out</button>
+    </div>
+    <p class="subtitle">Word-list intake — paste or upload vocab, no redeploy needed.</p>
+
+    <div class="panel">
+      <div class="field">
+        <label for="sourceInput">Source name</label>
+        <input type="text" id="sourceInput" placeholder="e.g. fry-dolch-1, placement-test, chapter7-science">
+        <div class="hint">Used as the KV batch name — letters, numbers, hyphens only.</div>
+      </div>
+      <div class="field">
+        <label for="wordsInput">Words</label>
+        <textarea id="wordsInput" placeholder="Paste words here — one per line, or comma-separated"></textarea>
+        <div class="hint">Or upload a .txt file:</div>
+        <input type="file" id="fileInput" accept=".txt" class="file-input">
+      </div>
+      <button id="saveBtn">Save word list</button>
+      <div class="status" id="saveStatus"></div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <label style="margin:0;">Current word lists</label>
+        <button class="secondary" id="refreshBtn">Refresh</button>
+      </div>
+      <div id="wordlistTableWrap"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const WORKER_ORIGIN = "https://reader-app-worker.erica-jarman.workers.dev";
+const PASSCODE_STORAGE_KEY = "starReaderAdminPasscode";
+
+const gateEl = document.getElementById("gate");
+const adminEl = document.getElementById("admin");
+const passcodeInput = document.getElementById("passcodeInput");
+const unlockBtn = document.getElementById("unlockBtn");
+const gateStatus = document.getElementById("gateStatus");
+const logoutBtn = document.getElementById("logoutBtn");
+const sourceInput = document.getElementById("sourceInput");
+const wordsInput = document.getElementById("wordsInput");
+const fileInput = document.getElementById("fileInput");
+const saveBtn = document.getElementById("saveBtn");
+const saveStatus = document.getElementById("saveStatus");
+const refreshBtn = document.getElementById("refreshBtn");
+const wordlistTableWrap = document.getElementById("wordlistTableWrap");
+
+let passcode = localStorage.getItem(PASSCODE_STORAGE_KEY) || "";
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    wordsInput.value = wordsInput.value ? wordsInput.value + "\n" + reader.result : reader.result;
+  };
+  reader.readAsText(file);
+});
+
+unlockBtn.addEventListener("click", () => tryUnlock(passcodeInput.value.trim()));
+passcodeInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") tryUnlock(passcodeInput.value.trim());
+});
+
+logoutBtn.addEventListener("click", () => {
+  localStorage.removeItem(PASSCODE_STORAGE_KEY);
+  passcode = "";
+  adminEl.style.display = "none";
+  gateEl.style.display = "block";
+  passcodeInput.value = "";
+});
+
+async function tryUnlock(candidate) {
+  if (!candidate) return;
+  gateStatus.textContent = "Checking...";
+  const ok = await fetchWordlists(candidate);
+  if (ok) {
+    passcode = candidate;
+    localStorage.setItem(PASSCODE_STORAGE_KEY, passcode);
+    gateStatus.textContent = "";
+    gateEl.style.display = "none";
+    adminEl.style.display = "block";
+  } else {
+    gateStatus.textContent = "Wrong passcode.";
+  }
+}
+
+async function fetchWordlists(candidatePasscode) {
+  try {
+    const res = await fetch(`${WORKER_ORIGIN}/api/admin/wordlist`, {
+      headers: { "X-Admin-Passcode": candidatePasscode },
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    renderWordlists(data.wordlists || []);
+    return true;
+  } catch (err) {
+    gateStatus.textContent = "Couldn't reach the Worker.";
+    return false;
+  }
+}
+
+function renderWordlists(wordlists) {
+  if (!wordlists.length) {
+    wordlistTableWrap.innerHTML = '<p class="empty-note">No word lists loaded yet — the drill is using its built-in default list.</p>';
+    return;
+  }
+  const rows = wordlists
+    .map(
+      (w) =>
+        `<tr><td>${escapeHtml(w.source)}</td><td>${w.wordCount}</td><td>${w.updatedAt ? new Date(w.updatedAt).toLocaleString() : ""}</td></tr>`
+    )
+    .join("");
+  wordlistTableWrap.innerHTML =
+    `<table><thead><tr><th>Source</th><th>Words</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+refreshBtn.addEventListener("click", () => fetchWordlists(passcode));
+
+saveBtn.addEventListener("click", async () => {
+  const source = sourceInput.value.trim();
+  const words = wordsInput.value.trim();
+  if (!source || !words) {
+    saveStatus.className = "status error";
+    saveStatus.textContent = "Source name and words are both required.";
+    return;
+  }
+  saveBtn.disabled = true;
+  saveStatus.className = "status";
+  saveStatus.textContent = "Saving...";
+  try {
+    const res = await fetch(`${WORKER_ORIGIN}/api/admin/wordlist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Passcode": passcode },
+      body: JSON.stringify({ source, words }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      saveStatus.className = "status error";
+      saveStatus.textContent = data.error || "Failed to save.";
+    } else {
+      saveStatus.className = "status success";
+      saveStatus.textContent = `Saved ${data.wordCount} word(s) to "${data.source}".`;
+      sourceInput.value = "";
+      wordsInput.value = "";
+      fileInput.value = "";
+      fetchWordlists(passcode);
+    }
+  } catch (err) {
+    saveStatus.className = "status error";
+    saveStatus.textContent = "Couldn't reach the Worker.";
+  }
+  saveBtn.disabled = false;
+});
+
+// Auto-unlock if a passcode is already stored from a previous visit.
+if (passcode) {
+  tryUnlock(passcode);
+}
+</script>
+</body>
+</html>

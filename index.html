@@ -146,9 +146,11 @@
 /* ---------- Config ---------- */
 const WORKER_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/score";
 const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
-// Word list for this session — in production this comes from the Worker (wordlist + spaced-repetition selection).
-// Hardcoded here for local testing of the drill loop only.
-const SESSION_WORDS = ["the", "said", "was", "come", "friend"];
+const SESSION_WORDS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/session-words";
+// Only used if the Worker fetch fails outright (offline, Worker down, etc.) — the
+// Worker itself falls back to the same list if no admin word lists are loaded yet.
+const FALLBACK_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
+let SESSION_WORDS = [];
 
 // Reused across every playback (rather than `new Audio()` per call) so the very first
 // play()+pause(), fired synchronously inside the mic-tap gesture, "unlocks" this element
@@ -215,7 +217,6 @@ function buildStarTrail() {
     starTrail.appendChild(s);
   });
 }
-buildStarTrail();
 
 function showWord(word) {
   wordDisplay.textContent = word;
@@ -225,9 +226,24 @@ function showWord(word) {
   wordAttemptCount = 0;
 }
 
-showWord(SESSION_WORDS[wordIndex]);
-
 micOrb.addEventListener("click", startListening);
+
+async function initSession() {
+  micOrb.disabled = true;
+  statusLine.textContent = "Getting your words ready...";
+  try {
+    const res = await fetch(SESSION_WORDS_ENDPOINT);
+    const data = await res.json();
+    SESSION_WORDS = Array.isArray(data.words) && data.words.length ? data.words : FALLBACK_SESSION_WORDS;
+  } catch (err) {
+    SESSION_WORDS = FALLBACK_SESSION_WORDS;
+  }
+  buildStarTrail();
+  showWord(SESSION_WORDS[wordIndex]);
+  micOrb.disabled = false;
+}
+
+initSession();
 
 async function startListening() {
   if (micOrb.disabled) return;
