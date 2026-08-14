@@ -208,30 +208,39 @@ logoutBtn.addEventListener("click", () => {
 async function tryUnlock(candidate) {
   if (!candidate) return;
   gateStatus.textContent = "Checking...";
-  const ok = await fetchWordlists(candidate);
-  if (ok) {
+  const result = await fetchWordlists(candidate);
+  if (result.ok) {
     passcode = candidate;
     localStorage.setItem(PASSCODE_STORAGE_KEY, passcode);
     gateStatus.textContent = "";
     gateEl.style.display = "none";
     adminEl.style.display = "block";
+  } else if (result.reason === "unauthorized") {
+    gateStatus.textContent = "Wrong passcode — or the ADMIN_PASSCODE secret hasn't been set on the Worker yet.";
+  } else if (result.reason === "not-found") {
+    gateStatus.textContent = "The Worker doesn't have the admin routes yet — check that worker.js has been redeployed.";
+  } else if (result.reason === "network") {
+    gateStatus.textContent = "Couldn't reach the Worker.";
   } else {
-    gateStatus.textContent = "Wrong passcode.";
+    gateStatus.textContent = "Something went wrong talking to the Worker.";
   }
 }
 
+// Distinguishes *why* the request failed (wrong/unset passcode vs. stale Worker deploy
+// vs. can't reach it at all) instead of collapsing every failure into "wrong passcode".
 async function fetchWordlists(candidatePasscode) {
   try {
     const res = await fetch(`${WORKER_ORIGIN}/api/admin/wordlist`, {
       headers: { "X-Admin-Passcode": candidatePasscode },
     });
-    if (!res.ok) return false;
+    if (res.status === 401) return { ok: false, reason: "unauthorized" };
+    if (res.status === 404) return { ok: false, reason: "not-found" };
+    if (!res.ok) return { ok: false, reason: "server-error" };
     const data = await res.json();
     renderWordlists(data.wordlists || []);
-    return true;
+    return { ok: true };
   } catch (err) {
-    gateStatus.textContent = "Couldn't reach the Worker.";
-    return false;
+    return { ok: false, reason: "network" };
   }
 }
 
