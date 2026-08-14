@@ -145,9 +145,34 @@
 <script>
 /* ---------- Config ---------- */
 const WORKER_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/score";
+const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
 // Word list for this session — in production this comes from the Worker (wordlist + spaced-repetition selection).
 // Hardcoded here for local testing of the drill loop only.
 const SESSION_WORDS = ["the", "said", "was", "come", "friend"];
+
+// Reused across every playback (rather than `new Audio()` per call) so the very first
+// play()+pause(), fired synchronously inside the mic-tap gesture, "unlocks" this element
+// for iOS Safari's autoplay policy — later async .play() calls on it then work normally.
+const ttsPlayer = new Audio();
+let audioUnlocked = false;
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+}
+
+async function playWord(word, rate) {
+  try {
+    const res = await fetch(`${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate}`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    ttsPlayer.src = URL.createObjectURL(blob);
+    await ttsPlayer.play();
+  } catch (err) {
+    // Non-blocking: if TTS fails, the text hint alone still stands.
+  }
+}
 
 let wordIndex = 0;
 let wordAttemptCount = 0; // resets each new word; drives gentle-retry vs show-the-sound behavior
@@ -206,6 +231,7 @@ micOrb.addEventListener("click", startListening);
 
 async function startListening() {
   if (micOrb.disabled) return;
+  unlockAudioPlayback(); // must happen synchronously in this gesture, before any await
   micOrb.disabled = true;
   micOrb.classList.add("armed");
   promptPanel.classList.add("listening");
@@ -387,11 +413,13 @@ function handleResult(correct, weakestPhoneme) {
     statusLine.textContent = "Let's try that one again";
     setTimeout(resetOrb, 1200);
   } else {
-    // Second+ miss: point out the specific sound that needs work.
+    // Second+ miss: point out the specific sound that needs work and say the word
+    // slowly so there's something to actually listen to and sound out against.
     const soundHint = weakestPhoneme
       ? `Listen for the "${weakestPhoneme.phoneme}" sound`
       : "Let's sound it out together";
     statusLine.textContent = soundHint;
+    playWord(SESSION_WORDS[wordIndex], "slow");
     setTimeout(resetOrb, 2200);
   }
 }

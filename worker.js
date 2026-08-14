@@ -17,6 +17,13 @@
  * "Correct" requires the word-level score AND every individual phoneme to clear a threshold —
  * strict, so a mispronounced-but-recognizable word (e.g. "said" as "sah-EED") is caught rather
  * than being auto-corrected to the target word the way a plain transcription API would.
+ *
+ * Route: GET /api/tts?word=<word>&rate=slow|normal
+ *   Returns audio/mpeg — the target word spoken via Azure TTS (reuses the same Speech
+ *   resource as scoring). Used for the "listen for the sound" hint on a second miss.
+ *   Isolated single-phoneme audio isn't attempted here — TTS engines can't reliably
+ *   produce a standalone consonant sound, so the reliable version of "listen for it"
+ *   is the whole word spoken slowly.
  */
 
 const KV_PREFIX = "reading:dustin:";
@@ -35,6 +42,10 @@ export default {
 
     if (url.pathname === "/api/sight-word/score" && request.method === "POST") {
       return withCors(await handleScore(request, env));
+    }
+
+    if (url.pathname === "/api/tts" && request.method === "GET") {
+      return withCors(await handleTTS(request, env));
     }
 
     return withCors(new Response("Not found", { status: 404 }));
@@ -85,6 +96,69 @@ async function handleScore(request, env) {
     console.error("Scoring error stack:", err && err.stack);
     return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
   }
+}
+
+async function handleTTS(request, env) {
+  try {
+    const url = new URL(request.url);
+    const word = (url.searchParams.get("word") || "").toString().trim();
+    const rate = url.searchParams.get("rate") === "slow" ? "-40%" : "0%";
+
+    if (!word) {
+      return jsonResponse({ error: "Missing word" }, 400);
+    }
+
+    const trimmedKey = (env.AZURE_SPEECH_KEY || "").trim();
+    const trimmedRegion = (env.AZURE_SPEECH_REGION || "").trim();
+    if (!trimmedKey || !trimmedRegion) {
+      return jsonResponse({ error: "Missing AZURE_SPEECH_KEY or AZURE_SPEECH_REGION binding" }, 500);
+    }
+
+    const ssml =
+      `<speak version="1.0" xml:lang="en-US">` +
+      `<voice name="en-US-JennyNeural"><prosody rate="${rate}">${escapeXml(word)}</prosody></voice>` +
+      `</speak>`;
+
+    let res;
+    try {
+      res = await fetch(`https://${trimmedRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": trimmedKey,
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "audio-16khz-32kbitrate-mono-mp3",
+          "User-Agent": "star-reader-worker",
+        },
+        body: ssml,
+      });
+    } catch (networkErr) {
+      console.error("Azure TTS fetch network error:", networkErr.message);
+      throw new Error(`Azure TTS network error: ${networkErr.message}`);
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Azure TTS API non-OK response:", res.status, errText);
+      return jsonResponse({ error: "TTS failed", detail: errText }, 502);
+    }
+
+    return new Response(res.body, {
+      status: 200,
+      headers: { "Content-Type": "audio/mpeg" },
+    });
+  } catch (err) {
+    console.error("TTS error:", err && err.message);
+    return jsonResponse({ error: "TTS failed", detail: err && err.message }, 500);
+  }
+}
+
+function escapeXml(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
