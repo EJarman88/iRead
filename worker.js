@@ -98,6 +98,7 @@ async function handleScore(request, env) {
         fluencyScore: assessment.fluencyScore,
         completenessScore: assessment.completenessScore,
         pronScore: assessment.pronScore,
+        rawBestJSON: assessment.rawBestJSON,
       },
     });
   } catch (err) {
@@ -266,6 +267,12 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     fluencyScore: best.PronunciationAssessment ? best.PronunciationAssessment.FluencyScore ?? null : null,
     completenessScore: best.PronunciationAssessment ? best.PronunciationAssessment.CompletenessScore ?? null : null,
     pronScore: best.PronunciationAssessment ? best.PronunciationAssessment.PronScore ?? null : null,
+    // TEMP: every score above is coming back 0/null despite a correct transcript and
+    // ErrorType=None, which means our field paths likely don't match Azure's actual
+    // response shape rather than the word genuinely scoring zero. Dumping the raw
+    // NBest[0] object so we can see real field names instead of guessing again.
+    // Remove once the real paths are confirmed and the scores above are fixed.
+    rawBestJSON: JSON.stringify(best),
   };
 }
 
