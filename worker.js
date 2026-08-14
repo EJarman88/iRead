@@ -248,6 +248,9 @@ async function handleScore(request, env) {
       transcript: assessment.transcript,
       wordAccuracy: assessment.wordAccuracy,
       weakestPhoneme: weakestPhoneme ? { phoneme: weakestPhoneme.phoneme, accuracy: weakestPhoneme.accuracy } : null,
+      // Grapheme (spelled) syllable chunks, e.g. [{grapheme:"cir"},{grapheme:"cum"},{grapheme:"stance"}] —
+      // used for the kid-legible syllable-breakdown hint on a second miss.
+      syllables: assessment.syllables,
       // Diagnostic fields (not used by the correctness gate) — helps tell "badly
       // pronounced" apart from "alignment/miscue mismatch" while calibrating.
       debug: {
@@ -386,6 +389,7 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
       transcript: "",
       wordAccuracy: 0,
       phonemes: [],
+      syllables: [],
       recognitionStatus: data.RecognitionStatus || null,
       wordErrorType: null,
       fluencyScore: null,
@@ -413,6 +417,19 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     });
   });
 
+  // Syllables carry a "Grapheme" — the actual spelled-out chunk (e.g. "cir"/"cum"/"stance"),
+  // not a phonetic symbol — which is what lets the client show a kid-legible breakdown
+  // instead of Azure's raw phoneme alphabet.
+  const syllables = [];
+  (best.Words || []).forEach((w) => {
+    (w.Syllables || []).forEach((s) => {
+      syllables.push({
+        grapheme: s.Grapheme || s.Syllable || "",
+        accuracy: typeof s.AccuracyScore === "number" ? s.AccuracyScore : null,
+      });
+    });
+  });
+
   // ErrorType (from EnableMiscue) flags a word as "Insertion" when it's recognized
   // but doesn't align to the reference text — insertions get AccuracyScore forced to
   // 0 regardless of how well the word was actually said.
@@ -422,6 +439,7 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     transcript,
     wordAccuracy,
     phonemes,
+    syllables,
     recognitionStatus: data.RecognitionStatus,
     wordErrorType,
     fluencyScore: typeof best.FluencyScore === "number" ? best.FluencyScore : null,

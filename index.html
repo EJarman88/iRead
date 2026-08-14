@@ -72,6 +72,21 @@
     margin: 0;
   }
 
+  .word.syllable-mode {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 52px;
+  }
+  .syllable {
+    padding: 2px 10px;
+    border-radius: 12px;
+  }
+  .syllable.c0 { background: rgba(255,233,168,0.18); color: var(--star); }
+  .syllable.c1 { background: rgba(124,140,255,0.22); color: var(--nebula); }
+
   .status-line {
     margin-top: 28px;
     font-size: 20px;
@@ -219,11 +234,27 @@ function buildStarTrail() {
 }
 
 function showWord(word) {
+  wordDisplay.classList.remove("syllable-mode");
   wordDisplay.textContent = word;
   statusLine.textContent = "Tap the orb, then say the word";
   promptPanel.classList.remove("correct", "listening");
   promptShownAt = performance.now(); // prompt-appears timestamp: VAD latency baseline
   wordAttemptCount = 0;
+}
+
+// Renders the word as color-coded syllable chunks using Azure's spelled-out
+// "Grapheme" per syllable (e.g. cir/cum/stance), not a phonetic symbol — a decoding
+// aid shown only as a hint after he's struggled with a word, never up front.
+function showSyllableBreakdown(syllables) {
+  if (!syllables || syllables.length < 2) return; // nothing to break down
+  wordDisplay.innerHTML = syllables
+    .map((s, i) => `<span class="syllable c${i % 2}">${escapeHtml(s.grapheme)}</span>`)
+    .join("");
+  wordDisplay.classList.add("syllable-mode");
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 micOrb.addEventListener("click", startListening);
@@ -409,14 +440,14 @@ async function handleRecordingComplete(samples, sampleRate) {
         `errorType=${d.wordErrorType} recognitionStatus=${d.recognitionStatus}\n` +
         `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}`;
     }
-    handleResult(result.correct, result.weakestPhoneme);
+    handleResult(result.correct, result.weakestPhoneme, result.syllables);
   } catch (err) {
     statusLine.textContent = "Hmm, that didn't send. Try again!";
     resetOrb();
   }
 }
 
-function handleResult(correct, weakestPhoneme) {
+function handleResult(correct, weakestPhoneme, syllables) {
   if (correct) {
     promptPanel.classList.add("correct");
     statusLine.textContent = "Nice reading! 🌟";
@@ -432,12 +463,14 @@ function handleResult(correct, weakestPhoneme) {
     statusLine.textContent = "Let's try that one again";
     setTimeout(resetOrb, 1200);
   } else {
-    // Second+ miss: point out the specific sound that needs work and say the word
-    // slowly so there's something to actually listen to and sound out against.
+    // Second+ miss: point out the specific sound that needs work, break the word into
+    // syllable chunks so he can see it in pieces, and say it slowly so there's
+    // something to actually listen to and sound out against.
     const soundHint = weakestPhoneme
       ? `Listen for the "${weakestPhoneme.phoneme}" sound`
       : "Let's sound it out together";
     statusLine.textContent = soundHint;
+    showSyllableBreakdown(syllables);
     playWord(SESSION_WORDS[wordIndex], "slow");
     setTimeout(resetOrb, 2200);
   }
@@ -451,6 +484,7 @@ function lightStar(i) {
 function nextWord() {
   wordIndex++;
   if (wordIndex >= SESSION_WORDS.length) {
+    wordDisplay.classList.remove("syllable-mode");
     wordDisplay.textContent = "🎉";
     statusLine.textContent = "Session complete! Great work, astronaut.";
     micOrb.style.display = "none";
