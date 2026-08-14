@@ -98,7 +98,6 @@ async function handleScore(request, env) {
         fluencyScore: assessment.fluencyScore,
         completenessScore: assessment.completenessScore,
         pronScore: assessment.pronScore,
-        rawBestJSON: assessment.rawBestJSON,
       },
     });
   } catch (err) {
@@ -239,7 +238,11 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
 
   const best = data.NBest[0];
   const transcript = (data.DisplayText || "").trim();
-  const wordAccuracy = best.PronunciationAssessment ? best.PronunciationAssessment.AccuracyScore : 0;
+  // Pronunciation-assessment scores are flat properties directly on NBest[0]/Word/Phoneme —
+  // not nested under a "PronunciationAssessment" sub-object, despite that being the request
+  // header's name. Confirmed against a real response (a correctly-scored 100/100/100/100
+  // "the" was coming back as all zeros/nulls before this fix because of that wrong nesting).
+  const wordAccuracy = typeof best.AccuracyScore === "number" ? best.AccuracyScore : 0;
 
   // Flatten phonemes across all recognized words (usually just one, for a sight word)
   const phonemes = [];
@@ -247,15 +250,14 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     (w.Phonemes || []).forEach((p) => {
       phonemes.push({
         phoneme: p.Phoneme,
-        accuracy: p.PronunciationAssessment ? p.PronunciationAssessment.AccuracyScore : 0,
+        accuracy: typeof p.AccuracyScore === "number" ? p.AccuracyScore : 0,
       });
     });
   });
 
   // ErrorType (from EnableMiscue) flags a word as "Insertion" when it's recognized
   // but doesn't align to the reference text — insertions get AccuracyScore forced to
-  // 0 regardless of how well the word was actually said. Surfacing this to diagnose
-  // whether a 0 score means "badly pronounced" or "alignment mismatch."
+  // 0 regardless of how well the word was actually said.
   const wordErrorType = best.Words && best.Words[0] ? best.Words[0].ErrorType || null : null;
 
   return {
@@ -264,15 +266,9 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     phonemes,
     recognitionStatus: data.RecognitionStatus,
     wordErrorType,
-    fluencyScore: best.PronunciationAssessment ? best.PronunciationAssessment.FluencyScore ?? null : null,
-    completenessScore: best.PronunciationAssessment ? best.PronunciationAssessment.CompletenessScore ?? null : null,
-    pronScore: best.PronunciationAssessment ? best.PronunciationAssessment.PronScore ?? null : null,
-    // TEMP: every score above is coming back 0/null despite a correct transcript and
-    // ErrorType=None, which means our field paths likely don't match Azure's actual
-    // response shape rather than the word genuinely scoring zero. Dumping the raw
-    // NBest[0] object so we can see real field names instead of guessing again.
-    // Remove once the real paths are confirmed and the scores above are fixed.
-    rawBestJSON: JSON.stringify(best),
+    fluencyScore: typeof best.FluencyScore === "number" ? best.FluencyScore : null,
+    completenessScore: typeof best.CompletenessScore === "number" ? best.CompletenessScore : null,
+    pronScore: typeof best.PronScore === "number" ? best.PronScore : null,
   };
 }
 

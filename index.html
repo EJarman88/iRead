@@ -118,19 +118,13 @@
   .debug-line {
     display: none;
     position: fixed;
-    bottom: 0; left: 0; right: 0;
-    max-height: 40vh;
-    overflow-y: auto;
+    bottom: 8px; left: 8px; right: 8px;
     z-index: 2;
     font-family: monospace;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-dim);
     white-space: pre-wrap;
-    word-break: break-all;
     text-align: left;
-    background: rgba(11, 16, 36, 0.92);
-    padding: 8px;
-    box-sizing: border-box;
   }
   .debug-line.on { display: block; }
 </style>
@@ -393,18 +387,11 @@ async function handleRecordingComplete(samples, sampleRate) {
         ? `${result.weakestPhoneme.phoneme}=${result.weakestPhoneme.accuracy}`
         : "n/a";
       const d = result.debug || {};
-      let rawPretty = d.rawBestJSON || "";
-      try {
-        rawPretty = JSON.stringify(JSON.parse(d.rawBestJSON), null, 1);
-      } catch (e) {
-        // leave as raw string if it doesn't parse
-      }
       debugLine.textContent =
         `word="${targetWord}" correct=${result.correct} heard="${result.transcript || ""}"\n` +
         `wordAccuracy=${result.wordAccuracy} weakestPhoneme=${weakest}\n` +
         `errorType=${d.wordErrorType} recognitionStatus=${d.recognitionStatus}\n` +
-        `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}\n` +
-        `--- raw NBest[0] ---\n${rawPretty}`;
+        `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}`;
     }
     handleResult(result.correct, result.weakestPhoneme);
   } catch (err) {
