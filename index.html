@@ -137,10 +137,10 @@ const SESSION_WORDS = ["the", "said", "was", "come", "friend"];
 
 let wordIndex = 0;
 let wordAttemptCount = 0; // resets each new word; drives gentle-retry vs show-the-sound behavior
-let mediaRecorder, audioChunks = [];
 let promptShownAt = 0;
 let vadDetected = false;
 let audioContext, analyser, vadRAF;
+let scriptProcessor, recordedChunks = [], recordingTimeout;
 
 const wordDisplay = document.getElementById("wordDisplay");
 const statusLine = document.getElementById("statusLine");
@@ -191,40 +191,43 @@ async function startListening() {
   promptPanel.classList.add("listening");
   statusLine.textContent = "Listening...";
   vadDetected = false;
-  audioChunks = [];
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    setupVAD(stream);
-
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      cancelAnimationFrame(vadRAF);
-      if (audioContext) audioContext.close();
-      handleRecordingComplete();
-    };
-    mediaRecorder.start();
+    setupRecording(stream);
 
     // Safety cutoff so a silent mic doesn't hang forever
-    setTimeout(() => {
-      if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-    }, 6000);
+    recordingTimeout = setTimeout(() => stopRecording(stream), 6000);
   } catch (err) {
     statusLine.textContent = "Couldn't access the microphone";
     resetOrb();
   }
 }
 
-/* Local voice-activity detection: timing is fully decoupled from Whisper's correctness
-   check, which happens later server-side (per the doc's scoring pipeline principle). */
-function setupVAD(stream) {
+/* Records raw PCM via Web Audio API (instead of MediaRecorder's webm/opus) so the
+   Worker can send Azure a Content-Type it actually supports on the short-audio REST
+   endpoint (audio/wav or audio/ogg;codecs=opus — webm is not accepted there, which
+   was silently degrading pronunciation-assessment accuracy).
+   Local voice-activity detection keeps timing decoupled from the correctness check,
+   which happens later server-side (per the doc's scoring pipeline principle). */
+function setupRecording(stream) {
   audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioContext.createMediaStreamSource(stream);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
+
+  recordedChunks = [];
+  scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+  const silentGain = audioContext.createGain();
+  silentGain.gain.value = 0; // route through destination (required for onaudioprocess) without audible feedback
+  source.connect(scriptProcessor);
+  scriptProcessor.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+  scriptProcessor.onaudioprocess = (e) => {
+    recordedChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  };
+
   const data = new Uint8Array(analyser.frequencyBinCount);
   const THRESHOLD = 22; // tuned empirically; revisit during calibration period
 
@@ -235,43 +238,112 @@ function setupVAD(stream) {
       vadDetected = true;
       window.__latencyMs = Math.round(performance.now() - promptShownAt);
       // Stop shortly after speech onset, giving room to capture the full word.
-      setTimeout(() => {
-        if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-      }, 1200);
+      setTimeout(() => stopRecording(stream), 1200);
     }
-    if (mediaRecorder && mediaRecorder.state === "recording") {
+    if (scriptProcessor) {
       vadRAF = requestAnimationFrame(checkLevel);
     }
   }
   vadRAF = requestAnimationFrame(checkLevel);
 }
 
-async function handleRecordingComplete() {
+function stopRecording(stream) {
+  if (!scriptProcessor) return; // already stopped (VAD timeout can race the safety cutoff)
+  clearTimeout(recordingTimeout);
+  cancelAnimationFrame(vadRAF);
+  scriptProcessor.disconnect();
+  scriptProcessor.onaudioprocess = null;
+  scriptProcessor = null;
+  stream.getTracks().forEach((t) => t.stop());
+
+  const sampleRate = audioContext.sampleRate;
+  const samples = mergeFloat32Arrays(recordedChunks);
+  audioContext.close();
+  handleRecordingComplete(samples, sampleRate);
+}
+
+function mergeFloat32Arrays(chunks) {
+  const length = chunks.reduce((sum, c) => sum + c.length, 0);
+  const result = new Float32Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+// Azure's short-audio REST endpoint expects 16kHz mono PCM; the mic's AudioContext
+// usually runs at 44.1kHz/48kHz, so nearest-neighbor downsample before encoding.
+function downsampleTo16k(samples, inputSampleRate) {
+  const targetRate = 16000;
+  if (inputSampleRate === targetRate) return samples;
+  const ratio = inputSampleRate / targetRate;
+  const newLength = Math.round(samples.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    result[i] = samples[Math.floor(i * ratio)];
+  }
+  return result;
+}
+
+function encodeWAV(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeString(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+
+  return new Blob([view], { type: "audio/wav" });
+}
+
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+async function handleRecordingComplete(samples, sampleRate) {
   micOrb.classList.remove("armed");
   statusLine.textContent = "Checking...";
 
-  const blob = new Blob(audioChunks, { type: "audio/webm" });
+  const pcm16k = downsampleTo16k(samples, sampleRate);
+  const blob = encodeWAV(pcm16k, 16000);
   const targetWord = SESSION_WORDS[wordIndex];
   const latencyMs = window.__latencyMs ?? null;
 
   try {
     const formData = new FormData();
-    formData.append("audio", blob, "attempt.webm");
+    formData.append("audio", blob, "attempt.wav");
     formData.append("targetWord", targetWord);
     formData.append("latencyMs", latencyMs ?? "");
 
     const res = await fetch(WORKER_ENDPOINT, { method: "POST", body: formData });
     const result = await res.json();
     // Expected shape: { correct, transcript, wordAccuracy, weakestPhoneme: {phoneme, accuracy} | null }
-    console.log("DEBUG", result);
-    handleResult(result.correct, result.weakestPhoneme, result.transcript, result.wordAccuracy);
+    handleResult(result.correct, result.weakestPhoneme);
   } catch (err) {
     statusLine.textContent = "Hmm, that didn't send. Try again!";
     resetOrb();
   }
 }
 
-function handleResult(correct, weakestPhoneme, transcript, wordAccuracy) {
+function handleResult(correct, weakestPhoneme) {
   if (correct) {
     promptPanel.classList.add("correct");
     statusLine.textContent = "Nice reading! 🌟";
@@ -281,11 +353,6 @@ function handleResult(correct, weakestPhoneme, transcript, wordAccuracy) {
   }
 
   wordAttemptCount++;
-
-  // DEBUG: showing raw Azure output — remove once calibration is confirmed working.
-  statusLine.textContent = `Heard: "${transcript || "(nothing)"}" | score: ${wordAccuracy}`;
-  setTimeout(resetOrb, 2600);
-  return;
 
   if (wordAttemptCount === 1) {
     // First miss: gentle nudge only, no breakdown yet — avoid overwhelming on the first try.
