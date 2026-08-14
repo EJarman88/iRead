@@ -505,7 +505,12 @@ function jsonResponse(obj, status = 200) {
 function withCors(response) {
   const newHeaders = new Headers(response.headers);
   newHeaders.set("Access-Control-Allow-Origin", "*"); // tighten to your app's origin before real use
-  newHeaders.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  newHeaders.set("Access-Control-Allow-Headers", "Content-Type");
+  // GET was added for /api/tts and /api/sight-word/session-words, and X-Admin-Passcode
+  // for the /api/admin/* routes. admin.html sends that custom header on its GET/POST
+  // calls, which forces the browser to preflight — and the preflight response has to
+  // list both the real method and the custom header or the browser blocks the actual
+  // request outright (surfaces in JS as a generic failed-fetch, not an HTTP error).
+  newHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  newHeaders.set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Passcode");
   return new Response(response.body, { status: response.status, headers: newHeaders });
 }
