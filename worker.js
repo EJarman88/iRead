@@ -18,6 +18,13 @@
  * strict, so a mispronounced-but-recognizable word (e.g. "said" as "sah-EED") is caught rather
  * than being auto-corrected to the target word the way a plain transcription API would.
  *
+ * Route: POST /api/spelling/score
+ *   JSON body: { targetWord, attempt }. Pure exact-match string comparison (no Azure
+ *   call) — the child hears the word via /api/tts and types what they heard.
+ *   Updates reading:dustin:words:{word}.spelling{correct,attempts} and appends to
+ *   today's session log with drillType "spelling".
+ *   Returns { correct, correctSpelling }.
+ *
  * Route: GET /api/tts?word=<word>&rate=slow|normal&phonemes=<space-separated SAPI codes>
  *   Returns audio/mpeg — spoken via Azure TTS (reuses the same Speech resource as
  *   scoring). Used for the whole-word "listen for the sound" hint (attempt 4+) and for
@@ -69,6 +76,10 @@ export default {
 
     if (url.pathname === "/api/sight-word/score" && request.method === "POST") {
       return withCors(await handleScore(request, env));
+    }
+
+    if (url.pathname === "/api/spelling/score" && request.method === "POST") {
+      return withCors(await handleSpellingScore(request, env));
     }
 
     if (url.pathname === "/api/tts" && request.method === "GET") {
@@ -271,6 +282,30 @@ async function handleScore(request, env) {
   } catch (err) {
     console.error("Scoring error message:", err && err.message);
     console.error("Scoring error stack:", err && err.stack);
+    return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
+  }
+}
+
+// Pure string comparison — no Azure call needed, unlike the reading drill's
+// pronunciation assessment. `attempt` is what the child typed after hearing
+// the word via /api/tts; correctness is exact-match, case/whitespace-insensitive.
+async function handleSpellingScore(request, env) {
+  try {
+    const body = await request.json();
+    const targetWord = (body.targetWord || "").toString().trim().toLowerCase();
+    const attempt = (body.attempt || "").toString().trim().toLowerCase();
+
+    if (!targetWord || !attempt) {
+      return jsonResponse({ error: "Missing targetWord or attempt" }, 400);
+    }
+
+    const correct = attempt === targetWord;
+
+    await recordSpellingAttempt(env.TUTOR_KV, targetWord, correct);
+
+    return jsonResponse({ correct, correctSpelling: targetWord });
+  } catch (err) {
+    console.error("Spelling score error:", err && err.message);
     return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
   }
 }
@@ -525,10 +560,31 @@ async function recordAttempt(kv, word, { correct, latencyMs, transcript, wordAcc
   await kv.put(key, JSON.stringify(existing));
 
   // Also append to today's session log
-  await appendSessionLog(kv, word, correct, latencyMs);
+  await appendSessionLog(kv, word, correct, latencyMs, "sight-word");
 }
 
-async function appendSessionLog(kv, word, correct, latencyMs) {
+async function recordSpellingAttempt(kv, word, correct) {
+  const key = `${KV_PREFIX}words:${word}`;
+  const existingRaw = await kv.get(key);
+  const existing = existingRaw
+    ? JSON.parse(existingRaw)
+    : {
+        reading: { attempts: 0, correct: 0, incorrect: 0, avgLatencyMs: null, latencySamples: [] },
+        spelling: { correct: 0, attempts: 0 },
+      };
+
+  const spelling = existing.spelling;
+  spelling.attempts += 1;
+  if (correct) spelling.correct += 1;
+  spelling.lastAttemptAt = new Date().toISOString();
+
+  await kv.put(key, JSON.stringify(existing));
+
+  // Also append to today's session log
+  await appendSessionLog(kv, word, correct, null, "spelling");
+}
+
+async function appendSessionLog(kv, word, correct, latencyMs, drillType) {
   const today = new Date().toISOString().slice(0, 10);
   const key = `${KV_PREFIX}sessions:${today}`;
   const existingRaw = await kv.get(key);
@@ -536,11 +592,11 @@ async function appendSessionLog(kv, word, correct, latencyMs) {
     ? JSON.parse(existingRaw)
     : { date: today, drillTypes: [], items: [] };
 
-  if (!session.drillTypes.includes("sight-word")) {
-    session.drillTypes.push("sight-word");
+  if (!session.drillTypes.includes(drillType)) {
+    session.drillTypes.push(drillType);
   }
   session.items.push({
-    drillType: "sight-word",
+    drillType,
     word,
     correct,
     latencyMs,

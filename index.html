@@ -145,10 +145,19 @@
     text-align: left;
   }
   .debug-line.on { display: block; }
+
+  .nav-link {
+    position: fixed; top: 16px; right: 16px; z-index: 2;
+    color: var(--text-dim); text-decoration: none;
+    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--nebula-soft);
+  }
+  .nav-link:hover { color: var(--text); border-color: var(--nebula); }
 </style>
 </head>
 <body>
 <div id="stars"></div>
+<a class="nav-link" href="./spelling.html">✏️ Spelling drill</a>
 <main>
   <div class="mascot">🚀</div>
   <div class="prompt-panel" id="promptPanel">

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Reader — Spelling</title>
+<style>
+  :root {
+    --deep-space: #0b1024;
+    --panel: #131a35;
+    --star: #ffe9a8;
+    --nebula: #7c8cff;
+    --nebula-soft: #3d4a8f;
+    --success: #6bdc9c;
+    --error: #ff9a8a;
+    --text: #eef0ff;
+    --text-dim: #a8afd6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: radial-gradient(ellipse at top, #1a2150 0%, var(--deep-space) 60%);
+    font-family: 'Baloo 2', 'Comic Sans MS', system-ui, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+  #stars {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+  .star {
+    position: absolute; background: var(--star); border-radius: 50%;
+    opacity: 0.6; animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle { 0%,100% { opacity: .2; } 50% { opacity: .9; } }
+
+  .nav-link {
+    position: fixed; top: 16px; right: 16px; z-index: 2;
+    color: var(--text-dim); text-decoration: none;
+    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--nebula-soft);
+  }
+  .nav-link:hover { color: var(--text); border-color: var(--nebula); }
+
+  main {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; padding: 24px; text-align: center;
+  }
+
+  .mascot {
+    font-size: 56px; margin-bottom: 8px;
+    filter: drop-shadow(0 0 12px rgba(124,140,255,0.6));
+    animation: float 4s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-8px);} }
+
+  .prompt-panel {
+    background: var(--panel);
+    border: 2px solid var(--nebula-soft);
+    border-radius: 28px;
+    padding: 48px 64px;
+    box-shadow: 0 0 40px rgba(124,140,255,0.25), inset 0 0 60px rgba(124,140,255,0.05);
+    min-width: 280px;
+    transition: transform 0.2s ease, border-color 0.3s ease;
+  }
+  .prompt-panel.correct {
+    border-color: var(--success);
+    box-shadow: 0 0 50px rgba(107,220,156,0.4);
+  }
+  .prompt-panel.incorrect {
+    border-color: var(--error);
+    box-shadow: 0 0 50px rgba(255,154,138,0.3);
+  }
+
+  .listen-btn {
+    width: 90px; height: 90px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #9ba7ff, var(--nebula));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+    cursor: pointer;
+    border: none;
+    margin: 0 auto;
+    transition: transform 0.15s ease;
+  }
+  .listen-btn:active { transform: scale(0.94); }
+  .listen-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .replay-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-top: 14px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .replay-btn:hover { color: var(--text); }
+  .replay-btn:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+
+  .spell-input {
+    margin-top: 28px;
+    width: 100%;
+    font-size: 40px;
+    text-align: center;
+    letter-spacing: 4px;
+    background: rgba(255,255,255,0.06);
+    border: 2px solid var(--nebula-soft);
+    border-radius: 16px;
+    padding: 10px 16px;
+    color: var(--text);
+    font-family: inherit;
+    outline: none;
+  }
+  .spell-input:focus { border-color: var(--nebula); }
+  .spell-input:disabled { opacity: 0.6; }
+
+  .check-btn {
+    margin-top: 20px;
+    background: var(--nebula);
+    color: var(--text);
+    border: none;
+    border-radius: 14px;
+    padding: 12px 32px;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .check-btn:disabled { opacity: 0.5; cursor: default; }
+  .check-btn:active:not(:disabled) { transform: scale(0.96); }
+
+  .status-line {
+    margin-top: 20px;
+    font-size: 20px;
+    color: var(--text-dim);
+    min-height: 28px;
+  }
+
+  .reveal-word {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 16px;
+    font-size: 44px;
+    font-weight: 700;
+  }
+  .reveal-letter { padding: 0 4px; border-radius: 8px; }
+  .reveal-letter.hit { color: var(--success); }
+  .reveal-letter.miss { color: var(--error); }
+
+  .star-trail {
+    display: flex; gap: 10px; margin-top: 36px;
+  }
+  .star-trail span {
+    width: 14px; height: 14px;
+    background: var(--nebula-soft);
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    transition: background 0.4s ease, transform 0.4s ease;
+  }
+  .star-trail span.lit {
+    background: var(--star);
+    transform: scale(1.3);
+  }
+
+  .debug-line {
+    display: none;
+    position: fixed;
+    bottom: 8px; left: 8px; right: 8px;
+    z-index: 2;
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    text-align: left;
+  }
+  .debug-line.on { display: block; }
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<a class="nav-link" href="./index.html">🔊 Reading drill</a>
+<main>
+  <div class="mascot">🚀</div>
+  <div class="prompt-panel" id="promptPanel">
+    <button class="listen-btn" id="listenBtn" aria-label="Listen to the word">🔊</button>
+    <div>
+      <button class="replay-btn" id="replayBtn" disabled>Hear it again</button>
+    </div>
+    <input class="spell-input" id="spellInput" type="text" inputmode="text"
+           autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="type it" disabled>
+    <div>
+      <button class="check-btn" id="checkBtn" disabled>Check</button>
+    </div>
+    <div class="status-line" id="statusLine">Getting your words ready...</div>
+    <div class="reveal-word" id="revealWord"></div>
+  </div>
+  <div class="star-trail" id="starTrail"></div>
+</main>
+<div class="debug-line" id="debugLine"></div>
+
+<script>
+/* ---------- Config ---------- */
+const SPELLING_SCORE_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/spelling/score";
+const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
+const SESSION_WORDS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/session-words";
+// Shared pool with the reading drill — same word lists, same fallback.
+const FALLBACK_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
+let SESSION_WORDS = [];
+
+const ttsPlayer = new Audio();
+let audioUnlocked = false;
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+}
+
+async function playWord(word, rate) {
+  try {
+    const url = `${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    ttsPlayer.src = URL.createObjectURL(blob);
+    await ttsPlayer.play();
+  } catch (err) {
+    // Non-blocking: text input still works without audio.
+  }
+}
+
+let wordIndex = 0;
+let wordAttemptCount = 0; // resets each new word; drives gentle-retry vs reveal behavior
+
+const promptPanel = document.getElementById("promptPanel");
+const listenBtn = document.getElementById("listenBtn");
+const replayBtn = document.getElementById("replayBtn");
+const spellInput = document.getElementById("spellInput");
+const checkBtn = document.getElementById("checkBtn");
+const statusLine = document.getElementById("statusLine");
+const revealWord = document.getElementById("revealWord");
+const starTrail = document.getElementById("starTrail");
+const debugLine = document.getElementById("debugLine");
+
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+if (DEBUG) debugLine.classList.add("on");
+
+/* Starfield background */
+(function makeStars() {
+  const field = document.getElementById("stars");
+  for (let i = 0; i < 60; i++) {
+    const s = document.createElement("div");
+    s.className = "star";
+    const size = Math.random() * 2 + 1;
+    s.style.width = s.style.height = size + "px";
+    s.style.left = Math.random() * 100 + "%";
+    s.style.top = Math.random() * 100 + "%";
+    s.style.animationDelay = (Math.random() * 3) + "s";
+    field.appendChild(s);
+  }
+})();
+
+function buildStarTrail() {
+  starTrail.innerHTML = "";
+  SESSION_WORDS.forEach(() => {
+    const s = document.createElement("span");
+    starTrail.appendChild(s);
+  });
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function initSession() {
+  listenBtn.disabled = true;
+  try {
+    const res = await fetch(SESSION_WORDS_ENDPOINT);
+    const data = await res.json();
+    SESSION_WORDS = Array.isArray(data.words) && data.words.length ? data.words : FALLBACK_SESSION_WORDS;
+  } catch (err) {
+    SESSION_WORDS = FALLBACK_SESSION_WORDS;
+  }
+  buildStarTrail();
+  showWord();
+  listenBtn.disabled = false;
+}
+
+initSession();
+
+function showWord() {
+  promptPanel.classList.remove("correct", "incorrect");
+  revealWord.innerHTML = "";
+  spellInput.value = "";
+  spellInput.disabled = true;
+  checkBtn.disabled = true;
+  replayBtn.disabled = true;
+  statusLine.textContent = "Tap the speaker, then type what you hear";
+  wordAttemptCount = 0;
+}
+
+listenBtn.addEventListener("click", async () => {
+  unlockAudioPlayback(); // must happen synchronously in this gesture, before any await
+  await playWord(SESSION_WORDS[wordIndex], "normal");
+  spellInput.disabled = false;
+  checkBtn.disabled = false;
+  replayBtn.disabled = false;
+  statusLine.textContent = "Type what you heard";
+  spellInput.focus();
+});
+
+replayBtn.addEventListener("click", () => playWord(SESSION_WORDS[wordIndex], "normal"));
+
+spellInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !checkBtn.disabled) submitAttempt();
+});
+checkBtn.addEventListener("click", submitAttempt);
+
+async function submitAttempt() {
+  const attempt = spellInput.value.trim();
+  if (!attempt) return;
+  const targetWord = SESSION_WORDS[wordIndex];
+
+  spellInput.disabled = true;
+  checkBtn.disabled = true;
+  replayBtn.disabled = true;
+  statusLine.textContent = "Checking...";
+
+  try {
+    const res = await fetch(SPELLING_SCORE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetWord, attempt }),
+    });
+    const result = await res.json();
+    // Expected shape: { correct, correctSpelling }
+    if (DEBUG) {
+      debugLine.textContent =
+        `word="${targetWord}" attempt#${wordAttemptCount + 1} typed="${attempt}" correct=${result.correct}`;
+    }
+    handleResult(result.correct, attempt, targetWord);
+  } catch (err) {
+    statusLine.textContent = "Hmm, that didn't send. Try again!";
+    spellInput.disabled = false;
+    checkBtn.disabled = false;
+    replayBtn.disabled = false;
+  }
+}
+
+function handleResult(correct, attempt, targetWord) {
+  if (correct) {
+    promptPanel.classList.add("correct");
+    statusLine.textContent = "Nice spelling! 🌟";
+    lightStar(wordIndex);
+    setTimeout(nextWord, 1300);
+    return;
+  }
+
+  wordAttemptCount++;
+  promptPanel.classList.add("incorrect");
+
+  if (wordAttemptCount === 1) {
+    // First miss: gentle retry only, no reveal yet.
+    statusLine.textContent = "Not quite — listen again and try once more";
+    setTimeout(() => {
+      promptPanel.classList.remove("incorrect");
+      spellInput.value = "";
+      spellInput.disabled = false;
+      checkBtn.disabled = false;
+      replayBtn.disabled = false;
+      spellInput.focus();
+      playWord(targetWord, "normal");
+    }, 1400);
+    return;
+  }
+
+  // Attempt 2+: reveal the correct spelling with a per-letter diff against
+  // what was typed, then move on — looping further guesses after the
+  // reveal would just be confusing.
+  showReveal(targetWord, attempt);
+  statusLine.textContent = "Here's how it's spelled";
+  playWord(targetWord, "slow");
+  setTimeout(nextWord, 3200);
+}
+
+// Highlights each letter of the correct spelling green if the most recent
+// attempt had the same letter in the same position, red otherwise — a
+// lightweight index-based diff (not edit-distance) matching this project's
+// existing keep-it-simple scoring style.
+function showReveal(targetWord, attempt) {
+  revealWord.innerHTML = targetWord
+    .split("")
+    .map((ch, i) => {
+      const hit = attempt[i] && attempt[i].toLowerCase() === ch.toLowerCase();
+      return `<span class="reveal-letter ${hit ? "hit" : "miss"}">${escapeHtml(ch)}</span>`;
+    })
+    .join("");
+}
+
+function lightStar(i) {
+  const stars = starTrail.querySelectorAll("span");
+  if (stars[i]) stars[i].classList.add("lit");
+}
+
+function nextWord() {
+  wordIndex++;
+  if (wordIndex >= SESSION_WORDS.length) {
+    promptPanel.classList.remove("correct", "incorrect");
+    revealWord.innerHTML = "";
+    listenBtn.style.display = "none";
+    replayBtn.style.display = "none";
+    spellInput.style.display = "none";
+    checkBtn.style.display = "none";
+    statusLine.textContent = "🎉 Session complete! Great spelling, astronaut.";
+    return;
+  }
+  showWord();
+}
+</script>
+</body>
+</html>
