@@ -6,9 +6,8 @@
  *   TUTOR_KV            - KV namespace (shared with TutorHub)
  *   AZURE_SPEECH_KEY    - encrypted secret, Azure Speech resource key (reused from TutorHub TTS)
  *   AZURE_SPEECH_REGION - plain text var, e.g. "eastus" (must match the TutorHub Azure Speech resource's region)
- *   ANTHROPIC_API_KEY   - encrypted secret, optional. Powers /api/game/dispatch's Claude-generated
- *                         briefings. If unset, dispatches fall back to a deterministic template
- *                         built from the word list — the game still works, just less varied.
+ *   ANTHROPIC_API_KEY   - encrypted secret, Claude API key (Word Helper's vision calls,
+ *                         and /api/game/dispatch's text generation below)
  *
  * Route: POST /api/sight-word/score
  *   multipart/form-data:
@@ -28,6 +27,23 @@
  *   today's session log with drillType "spelling".
  *   Returns { correct, correctSpelling }.
  *
+ * Route: POST /api/word-helper/analyze
+ *   multipart/form-data: image - a photo/screenshot of a word (or words) Dustin is
+ *   stuck on. Sends the image to Claude's vision API (ANTHROPIC_API_KEY) in one call
+ *   asking it to: find the readable word(s) in the photo (just the one if it's
+ *   circled/highlighted/the only text, otherwise up to 6, most-prominent first), and
+ *   for each return a kid-friendly one-sentence definition plus a spelled syllable
+ *   breakdown (grapheme chunks, same style as the reading drill's — not phonemes).
+ *   Returns { words: [{ word, definition, syllables }] }. No KV writes here — that
+ *   only happens once a word is actually selected, via /api/word-helper/log.
+ *
+ * Route: POST /api/word-helper/log
+ *   JSON body: { word }. Called when Dustin taps a detected word to actually look at
+ *   it — records to reading:dustin:words:{word}.wordHelper{timesLookedUp} and appends
+ *   today's session log with drillType "word-helper" (no correct/incorrect — this
+ *   isn't scored). Kept separate from /analyze so only words he actually opens count,
+ *   not every word Claude happened to detect in a busier photo.
+ *
  * Route: GET /api/tts?word=<word>&rate=slow|normal&phonemes=<space-separated SAPI codes>
  *   Returns audio/mpeg — spoken via Azure TTS (reuses the same Speech resource as
  *   scoring). Used for the whole-word "listen for the sound" hint (attempt 4+) and for
@@ -39,17 +55,16 @@
  * Route: GET /api/sight-word/session-words
  *   Public, no gate. Returns { words: string[], source } — the word set for a drill
  *   session, pulled from whatever the admin has loaded into reading:dustin:wordlist:*.
- *   Selection is mastery/spaced-repetition-aware via selectAdaptiveWords() (shared
- *   with /api/game/session-words below) — struggle words and words not seen in a
- *   while are weighted higher, never-seen words get a baseline weight so new words
- *   get introduced. Falls back to a small built-in default list if nothing's been
- *   loaded yet.
+ *   Adaptively weighted (see computeWordWeight) by reading:dustin:words:{word}'s
+ *   accumulated reading+spelling accuracy — struggling words come up more, mastered
+ *   ones taper off but don't disappear, new words get a fair shot. Falls back to a
+ *   small built-in default list if nothing's been loaded yet.
  *
  * Route: GET /api/game/session-words?count=N
- *   Public, no gate. Same pooling + selectAdaptiveWords() logic as the route above,
- *   just a different default count (6, themed as "rounds" for Apex Armada). Word
- *   selection is intentionally the single shared function both drills and the game
- *   call — not a separate pool.
+ *   Public, no gate. Same pooling + weighting logic as the route above (reuses
+ *   computeWordWeight/weightedSampleWithoutReplacement) — just a different default
+ *   count (6, themed as "rounds" for Apex Armada). Intentionally the same selection
+ *   function as the sight-word/spelling drills, not a separate pool or algorithm.
  *
  * Route: POST /api/game/dispatch
  *   JSON body: { words: string[], targetWord }. Generates a 1-2 sentence "sonar
@@ -78,6 +93,30 @@
  *   raw pasted text (newline or comma separated). Parses, dedupes, and writes to
  *   reading:dustin:wordlist:{source}.
  *
+ * Route: GET /api/passage/session
+ *   Public, no gate. Returns { passages: [{ id, text, question: { prompt, options,
+ *   correctIndex } }] } — PASSAGE_SESSION_COUNT passages from the built-in PASSAGES
+ *   bank (short, original, 6th/7th-grade-level — grade-matched to Dustin's actual
+ *   curriculum per TutorHub, not early-elementary content), adaptively weighted by
+ *   reading:dustin:passages:{id}'s bestAccuracy the same way session-words is. The
+ *   comprehension answer key ships with the payload and is checked client-side —
+ *   low-stakes for a single child's reading practice, not worth a second round trip.
+ *
+ * Route: POST /api/passage/score
+ *   multipart/form-data: audio (16kHz mono PCM WAV, same encoding as sight-word
+ *   scoring), targetText (the full passage). Reuses assessPronunciation() as-is —
+ *   Azure's pronunciation assessment already handles multi-word ReferenceText and
+ *   returns utterance-level Accuracy/Fluency/Completeness scores directly, so no
+ *   separate passage-scoring path was needed. Passages are kept short (under ~90
+ *   words) to stay within what the short-audio REST endpoint handles well — no
+ *   streaming/continuous-recognition endpoint here.
+ *   Returns { overallAccuracy, fluencyScore, completenessScore, weakWords }, where
+ *   weakWords is the list of recognized words that scored under WORD_SCORE_THRESHOLD
+ *   (word-level, unlike the phoneme-level detail the sight-word drill surfaces —
+ *   passage-scale feedback is about which words to revisit, not individual sounds).
+ *   Updates reading:dustin:passages:{id}{attempts,bestAccuracy} and appends today's
+ *   session log with drillType "passage".
+ *
  * Additional binding expected:
  *   ADMIN_PASSCODE - encrypted secret, shared passcode gating the /api/admin/* routes
  */
@@ -95,10 +134,79 @@ const MAX_FORGIVABLE_WEAK_PHONEMES = 1;
 const DEFAULT_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
 const SESSION_WORD_COUNT = 5;
 
+const PASSAGE_SESSION_COUNT = 3;
+
 const GAME_SESSION_WORD_COUNT = 6;
 const GAME_KV_PREFIX = `${KV_PREFIX}game:`;
 const DISPATCH_MAX_ATTEMPTS = 3;
 const DISPATCH_MODEL = "claude-haiku-4-5-20251001";
+
+// Original short passages, 6th/7th-grade level (grade-matched per TutorHub's actual
+// curriculum, not early-elementary content) — none of this is drawn from any
+// copyrighted source. Kept short (well under 100 words) so a full-passage read stays
+// within what Azure's short-audio pronunciation-assessment endpoint handles well.
+const PASSAGES = [
+  {
+    id: "moon-phases",
+    text: "The moon does not make its own light. Instead, it reflects light from the sun. As the moon orbits Earth, we see different amounts of its lit half. This is why the moon seems to change shape every night, from a thin sliver to a full circle and back again.",
+    question: {
+      prompt: "Why does the moon appear to change shape?",
+      options: [
+        "It grows and shrinks each month",
+        "We see different amounts of sunlight reflecting off it",
+        "Clouds cover parts of it",
+        "The moon spins very fast",
+      ],
+      correctIndex: 1,
+    },
+  },
+  {
+    id: "coral-reef",
+    text: "A coral reef looks like a rock garden, but it is actually alive. Tiny animals called coral polyps build hard skeletons that connect together over many years. Thousands of fish, crabs, and other creatures depend on the reef for food and shelter, which is why reefs are sometimes called the rainforests of the sea.",
+    question: {
+      prompt: "Why are coral reefs compared to rainforests?",
+      options: [
+        "They are found in the same locations",
+        "They are made of trees",
+        "They support a huge variety of living things",
+        "They are colored green",
+      ],
+      correctIndex: 2,
+    },
+  },
+  {
+    id: "pyramids",
+    text: "Thousands of years ago, the people of ancient Egypt built massive pyramids as tombs for their pharaohs. Workers hauled enormous stone blocks across the desert without any modern machines. Historians still study how such a huge project was organized and completed with the tools available at the time.",
+    question: {
+      prompt: "What were the pyramids built for?",
+      options: ["Storing grain", "Tombs for pharaohs", "Government buildings", "Marketplaces"],
+      correctIndex: 1,
+    },
+  },
+  {
+    id: "baker-recipe",
+    text: "A baker was testing a new bread recipe. Her first batch used too much salt, so the loaves tasted harsh. She adjusted the ratio of salt to flour and tried again. The second batch turned out perfectly balanced, and she wrote the exact measurements down so she would never lose the recipe.",
+    question: {
+      prompt: "What problem did the baker fix in her second batch?",
+      options: ["The bread didn't rise", "There was too much salt", "The oven was too hot", "She ran out of flour"],
+      correctIndex: 1,
+    },
+  },
+  {
+    id: "voting",
+    text: "In a democracy, citizens choose their leaders by voting. Each vote counts toward deciding who will represent the community's interests. Because decisions affect everyone, many people believe voting is not just a right, but also an important responsibility.",
+    question: {
+      prompt: "According to the passage, why do some people see voting as a responsibility?",
+      options: [
+        "It is required by law in every country",
+        "Decisions affect the whole community",
+        "It only takes a few minutes",
+        "Leaders ask citizens to vote",
+      ],
+      correctIndex: 1,
+    },
+  },
+];
 
 export default {
   async fetch(request, env, ctx) {
@@ -114,6 +222,22 @@ export default {
 
     if (url.pathname === "/api/spelling/score" && request.method === "POST") {
       return withCors(await handleSpellingScore(request, env));
+    }
+
+    if (url.pathname === "/api/word-helper/analyze" && request.method === "POST") {
+      return withCors(await handleWordHelperAnalyze(request, env));
+    }
+
+    if (url.pathname === "/api/word-helper/log" && request.method === "POST") {
+      return withCors(await handleWordHelperLog(request, env));
+    }
+
+    if (url.pathname === "/api/passage/session" && request.method === "GET") {
+      return withCors(await handlePassageSession(request, env));
+    }
+
+    if (url.pathname === "/api/passage/score" && request.method === "POST") {
+      return withCors(await handlePassageScore(request, env));
     }
 
     if (url.pathname === "/api/tts" && request.method === "GET") {
@@ -171,9 +295,54 @@ function parseWordList(rawText) {
   return words;
 }
 
+// Adaptive selection — replaces plain shuffling. Each candidate (word or passage)
+// gets a weight from how much practice it needs: never-attempted items get a fair,
+// moderately-high shot at being introduced; struggling items (low accuracy) come up
+// more often; mastered items taper off but never to zero, so there's still light
+// review instead of a word disappearing forever the moment it's nailed once.
+const ADAPTIVE_NEW_ITEM_WEIGHT = 1.5;
+const ADAPTIVE_MIN_WEIGHT = 0.3;
+const ADAPTIVE_MAX_WEIGHT = 3;
+
+function computeWordWeight(record) {
+  const reading = record && record.reading;
+  const spelling = record && record.spelling;
+  const attempts = ((reading && reading.attempts) || 0) + ((spelling && spelling.attempts) || 0);
+  if (attempts === 0) return ADAPTIVE_NEW_ITEM_WEIGHT;
+  const correct = ((reading && reading.correct) || 0) + ((spelling && spelling.correct) || 0);
+  const accuracy = correct / attempts;
+  return ADAPTIVE_MIN_WEIGHT + (1 - accuracy) * (ADAPTIVE_MAX_WEIGHT - ADAPTIVE_MIN_WEIGHT);
+}
+
+function computePassageWeight(record) {
+  if (!record || !record.attempts) return ADAPTIVE_NEW_ITEM_WEIGHT;
+  const accuracy = (record.bestAccuracy || 0) / 100; // bestAccuracy is 0-100, not 0-1
+  return ADAPTIVE_MIN_WEIGHT + (1 - accuracy) * (ADAPTIVE_MAX_WEIGHT - ADAPTIVE_MIN_WEIGHT);
+}
+
+// Weighted sampling without replacement — picks `count` items, each draw
+// proportional to remaining weight among what's left. O(count * items.length),
+// fine at this app's scale (low hundreds of words, a handful of passages).
+function weightedSampleWithoutReplacement(items, weights, count) {
+  const pool = items.map((item, i) => ({ item, weight: Math.max(weights[i], 0.0001) }));
+  const selected = [];
+  while (selected.length < count && pool.length) {
+    const totalWeight = pool.reduce((sum, p) => sum + p.weight, 0);
+    let r = Math.random() * totalWeight;
+    let idx = 0;
+    for (; idx < pool.length - 1; idx++) {
+      r -= pool[idx].weight;
+      if (r <= 0) break;
+    }
+    selected.push(pool[idx].item);
+    pool.splice(idx, 1);
+  }
+  return selected;
+}
+
 // Pools every reading:dustin:wordlist:* batch the admin has loaded into one deduped
 // list. Shared by both session-words endpoints below — there is exactly one word
-// pool, never a separate one per interface.
+// pool and one weighting function, never a separate one per interface.
 async function getPooledWords(kv) {
   const listResult = await kv.list({ prefix: `${KV_PREFIX}wordlist:` });
   if (!listResult.keys.length) return [];
@@ -194,61 +363,10 @@ async function getPooledWords(kv) {
   return allWords;
 }
 
-// Mastery/spaced-repetition-aware selection, shared by the sight-word drill, the
-// spelling drill (which also calls the sight-word endpoint), and the Apex Armada
-// game — one selection function, not a separate pool or algorithm per interface.
-// Weights combine both reading (voice) and spelling (typed) attempts, since a word
-// counts as "known" regardless of which drill taught it.
 async function selectAdaptiveWords(kv, allWords, count) {
-  const now = Date.now();
-  const scored = await Promise.all(
-    allWords.map(async (word) => ({ word, weight: await computeWordWeight(kv, word, now) }))
-  );
-  return weightedSampleWithoutReplacement(scored, count);
-}
-
-async function computeWordWeight(kv, word, now) {
-  const raw = await kv.get(`${KV_PREFIX}words:${word}`);
-  const mastery = raw ? JSON.parse(raw) : null;
-  const reading = (mastery && mastery.reading) || { attempts: 0, correct: 0, lastAttemptAt: null };
-  const spelling = (mastery && mastery.spelling) || { attempts: 0, correct: 0, lastAttemptAt: null };
-
-  const attempts = reading.attempts + spelling.attempts;
-  const correct = reading.correct + spelling.correct;
-  const accuracy = attempts > 0 ? correct / attempts : 0.5; // unseen: mid-priority, not top
-
-  const lastTimes = [reading.lastAttemptAt, spelling.lastAttemptAt].filter(Boolean).map((t) => Date.parse(t));
-  const lastAttemptAt = lastTimes.length ? Math.max(...lastTimes) : 0;
-  const daysSinceSeen = lastAttemptAt ? (now - lastAttemptAt) / 86400000 : 999; // never-seen = very "due"
-
-  // Struggling words weigh more; a floor keeps mastered words from disappearing
-  // entirely so review still happens.
-  const struggleWeight = attempts === 0 ? 1 : (1 - accuracy) * 2 + 0.2;
-  // Words not seen in a while become more likely, capped so one ancient word doesn't
-  // dominate every session.
-  const spacedWeight = Math.min(daysSinceSeen / 3, 3) + 0.3;
-
-  return struggleWeight + spacedWeight;
-}
-
-function weightedSampleWithoutReplacement(items, count) {
-  const pool = items.slice();
-  const picked = [];
-  while (pool.length && picked.length < count) {
-    const total = pool.reduce((sum, it) => sum + it.weight, 0);
-    let r = Math.random() * total;
-    let idx = pool.length - 1;
-    for (let i = 0; i < pool.length; i++) {
-      r -= pool[i].weight;
-      if (r <= 0) {
-        idx = i;
-        break;
-      }
-    }
-    picked.push(pool[idx].word);
-    pool.splice(idx, 1);
-  }
-  return picked;
+  const records = await Promise.all(allWords.map((w) => kv.get(`${KV_PREFIX}words:${w}`)));
+  const weights = records.map((raw) => computeWordWeight(raw ? JSON.parse(raw) : null));
+  return weightedSampleWithoutReplacement(allWords, weights, Math.min(count, allWords.length));
 }
 
 async function handleSessionWords(request, env) {
@@ -257,7 +375,7 @@ async function handleSessionWords(request, env) {
     if (!allWords.length) {
       return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default" });
     }
-    const selected = await selectAdaptiveWords(env.TUTOR_KV, allWords, Math.min(SESSION_WORD_COUNT, allWords.length));
+    const selected = await selectAdaptiveWords(env.TUTOR_KV, allWords, SESSION_WORD_COUNT);
     return jsonResponse({ words: selected, source: "wordlist" });
   } catch (err) {
     console.error("Session words error:", err && err.message);
@@ -275,11 +393,56 @@ async function handleGameSessionWords(request, env) {
     if (!allWords.length) {
       return jsonResponse({ words: DEFAULT_SESSION_WORDS.slice(0, count), source: "default" });
     }
-    const selected = await selectAdaptiveWords(env.TUTOR_KV, allWords, Math.min(count, allWords.length));
+    const selected = await selectAdaptiveWords(env.TUTOR_KV, allWords, count);
     return jsonResponse({ words: selected, source: "wordlist" });
   } catch (err) {
     console.error("Game session words error:", err && err.message);
     return jsonResponse({ words: DEFAULT_SESSION_WORDS.slice(0, GAME_SESSION_WORD_COUNT), source: "default-error" });
+  }
+}
+
+async function handlePassageSession(request, env) {
+  const records = await Promise.all(PASSAGES.map((p) => env.TUTOR_KV.get(`${KV_PREFIX}passages:${p.id}`)));
+  const weights = records.map((raw) => computePassageWeight(raw ? JSON.parse(raw) : null));
+  const selected = weightedSampleWithoutReplacement(PASSAGES, weights, Math.min(PASSAGE_SESSION_COUNT, PASSAGES.length));
+  return jsonResponse({
+    passages: selected.map((p) => ({ id: p.id, text: p.text, question: p.question })),
+  });
+}
+
+async function handlePassageScore(request, env) {
+  try {
+    const formData = await request.formData();
+    const audio = formData.get("audio");
+    const passageId = (formData.get("passageId") || "").toString().trim();
+    const targetText = (formData.get("targetText") || "").toString().trim();
+
+    if (!audio || !targetText) {
+      return jsonResponse({ error: "Missing audio or targetText" }, 400);
+    }
+
+    const assessment = await assessPronunciation(audio, targetText, env.AZURE_SPEECH_KEY, env.AZURE_SPEECH_REGION);
+
+    const weakWords = assessment.words.filter((w) => w.accuracy < WORD_SCORE_THRESHOLD).map((w) => w.word);
+
+    if (passageId) {
+      await recordPassageAttempt(env.TUTOR_KV, passageId, {
+        overallAccuracy: assessment.wordAccuracy,
+        fluencyScore: assessment.fluencyScore,
+        completenessScore: assessment.completenessScore,
+      });
+    }
+
+    return jsonResponse({
+      overallAccuracy: assessment.wordAccuracy,
+      fluencyScore: assessment.fluencyScore,
+      completenessScore: assessment.completenessScore,
+      weakWords,
+      transcript: assessment.transcript,
+    });
+  } catch (err) {
+    console.error("Passage scoring error:", err && err.message);
+    return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
   }
 }
 
@@ -589,6 +752,173 @@ async function handleSpellingScore(request, env) {
   }
 }
 
+// System prompt for Claude's vision call — kept strict about JSON-only output since
+// the Worker parses the response directly with no free-text fallback.
+const WORD_HELPER_SYSTEM_PROMPT = `You help build a reading-support tool for a young child who is learning to read. You will be shown a photo of text (a worksheet, book page, sign, or screenshot) and must respond with ONLY valid JSON — no markdown code fences, no commentary before or after — matching exactly this shape:
+
+{"words": [{"word": "example", "definition": "A short, simple sentence a 6-9 year old can understand, explaining what the word means.", "syllables": ["ex", "am", "ple"]}]}
+
+Rules:
+- Only include actual words a child might need help with — skip numbers, punctuation-only tokens, and stray single letters (unless the letter is a real word on its own, like "a" or "I").
+- If one word is circled, highlighted, underlined, or is clearly the only/primary text in the photo, return just that single word.
+- Otherwise return up to 6 of the most prominent words, most prominent first.
+- "definition" must be exactly one short, plain sentence — no jargon, and never use the word itself (or an obvious variant of it) inside its own definition.
+- "syllables" is the word split into spelled syllable chunks (not phonetic symbols), e.g. "circumstance" -> ["cir", "cum", "stance"]. For a one-syllable word, return a single-element array containing the whole word.
+- If you can't find any readable words in the image, return {"words": []}.`;
+
+async function handleWordHelperAnalyze(request, env) {
+  try {
+    const formData = await request.formData();
+    const image = formData.get("image");
+    if (!image) {
+      return jsonResponse({ error: "Missing image" }, 400);
+    }
+
+    const apiKey = (env.ANTHROPIC_API_KEY || "").trim();
+    if (!apiKey) {
+      return jsonResponse({ error: "Missing ANTHROPIC_API_KEY binding" }, 500);
+    }
+
+    const mediaType = (image.type || "image/jpeg").split(";")[0] || "image/jpeg";
+    const buffer = await image.arrayBuffer();
+    const base64 = arrayBufferToBase64(buffer);
+
+    let res;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1024,
+          system: WORD_HELPER_SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+                { type: "text", text: "Here is the photo. Respond with only the JSON described in your instructions." },
+              ],
+            },
+          ],
+        }),
+      });
+    } catch (networkErr) {
+      console.error("Anthropic API network error:", networkErr.message);
+      throw new Error(`Anthropic API network error: ${networkErr.message}`);
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Anthropic API non-OK response:", res.status, errText);
+      return jsonResponse({ error: "Word Helper analysis failed", detail: errText }, 502);
+    }
+
+    const data = await res.json();
+    const rawText = (data.content && data.content[0] && data.content[0].text) || "";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(stripJsonFences(rawText));
+    } catch (parseErr) {
+      console.error("Word Helper: couldn't parse Claude response as JSON:", rawText);
+      return jsonResponse({ error: "Couldn't understand that photo — try again with just the word in view." }, 502);
+    }
+
+    const words = Array.isArray(parsed.words)
+      ? parsed.words
+          .slice(0, 6)
+          .map((w) => ({
+            word: (w.word || "").toString().trim().toLowerCase(),
+            definition: (w.definition || "").toString().trim(),
+            syllables: Array.isArray(w.syllables) ? w.syllables.map((s) => s.toString().toLowerCase()) : [],
+          }))
+          .filter((w) => w.word)
+      : [];
+
+    return jsonResponse({ words });
+  } catch (err) {
+    console.error("Word Helper analyze error:", err && err.message);
+    return jsonResponse({ error: "Word Helper analysis failed", detail: err && err.message }, 500);
+  }
+}
+
+function stripJsonFences(text) {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return fenced ? fenced[1] : trimmed;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000; // avoid call-stack blowup from String.fromCharCode(...bytes) on large images
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function handleWordHelperLog(request, env) {
+  try {
+    const body = await request.json();
+    const word = (body.word || "").toString().trim().toLowerCase();
+    if (!word) {
+      return jsonResponse({ error: "Missing word" }, 400);
+    }
+
+    await recordWordHelperLookup(env.TUTOR_KV, word);
+
+    return jsonResponse({ ok: true });
+  } catch (err) {
+    console.error("Word Helper log error:", err && err.message);
+    return jsonResponse({ error: "Failed to log lookup", detail: err && err.message }, 500);
+  }
+}
+
+async function recordWordHelperLookup(kv, word) {
+  const key = `${KV_PREFIX}words:${word}`;
+  const existingRaw = await kv.get(key);
+  const existing = existingRaw
+    ? JSON.parse(existingRaw)
+    : {
+        reading: { attempts: 0, correct: 0, incorrect: 0, avgLatencyMs: null, latencySamples: [] },
+        spelling: { correct: 0, attempts: 0 },
+      };
+
+  existing.wordHelper = existing.wordHelper || { timesLookedUp: 0 };
+  existing.wordHelper.timesLookedUp += 1;
+  existing.wordHelper.lastLookedUpAt = new Date().toISOString();
+
+  await kv.put(key, JSON.stringify(existing));
+
+  // Also append to today's session log
+  await appendSessionLog(kv, word, null, null, "word-helper");
+}
+
+async function recordPassageAttempt(kv, passageId, { overallAccuracy, fluencyScore, completenessScore }) {
+  const key = `${KV_PREFIX}passages:${passageId}`;
+  const existingRaw = await kv.get(key);
+  const existing = existingRaw ? JSON.parse(existingRaw) : { attempts: 0, bestAccuracy: 0 };
+
+  existing.attempts += 1;
+  existing.bestAccuracy = Math.max(existing.bestAccuracy, overallAccuracy);
+  existing.lastAccuracy = overallAccuracy;
+  existing.lastFluencyScore = fluencyScore;
+  existing.lastCompletenessScore = completenessScore;
+  existing.lastAttemptAt = new Date().toISOString();
+
+  await kv.put(key, JSON.stringify(existing));
+
+  // Also append to today's session log — passageId doubles as the item identifier,
+  // same as how reading/spelling log an actual word.
+  await appendSessionLog(kv, passageId, overallAccuracy >= WORD_SCORE_THRESHOLD, null, "passage");
+}
+
 async function handleTTS(request, env) {
   try {
     const url = new URL(request.url);
@@ -721,6 +1051,7 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
       wordAccuracy: 0,
       phonemes: [],
       syllables: [],
+      words: [],
       recognitionStatus: data.RecognitionStatus || null,
       wordErrorType: null,
       fluencyScore: null,
@@ -786,11 +1117,21 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
   // 0 regardless of how well the word was actually said.
   const wordErrorType = best.Words && best.Words[0] ? best.Words[0].ErrorType || null : null;
 
+  // Per-word accuracy (as opposed to the flat per-phoneme list above) — used by
+  // passage scoring to say *which words* need another look, since phoneme-level
+  // detail doesn't make sense to surface across a whole paragraph.
+  const words = (best.Words || []).map((w) => ({
+    word: (w.Word || "").toString(),
+    accuracy: typeof w.AccuracyScore === "number" ? w.AccuracyScore : 0,
+    errorType: w.ErrorType || null,
+  }));
+
   return {
     transcript,
     wordAccuracy,
     phonemes,
     syllables,
+    words,
     recognitionStatus: data.RecognitionStatus,
     wordErrorType,
     fluencyScore: typeof best.FluencyScore === "number" ? best.FluencyScore : null,

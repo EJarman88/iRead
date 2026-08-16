@@ -1,14 +1,14 @@
 # Seed word lists
 
-Canonical, version-controlled source for the starter sight-word lists. These are
-standard, public-domain-style high-frequency word lists used across reading
-instruction (Fry's Instant Words, Dolch sight words) — not scraped from any
-proprietary source.
+Canonical, version-controlled source for the starter word lists that get seeded
+into the Worker's KV store.
 
-- `fry-1st-100.txt` — Edward Fry's first 100 Instant Words
-- `dolch-pre-primer.txt` — Dolch pre-primer list (40 words)
-- `dolch-primer.txt` — Dolch primer list (52 words)
-- `dolch-1st-grade.txt` — Dolch 1st grade list (41 words)
+- `grade-6-7-vocabulary.txt` — 150 general academic (tier-2) vocabulary words
+  appropriate to Dustin's actual 6th/7th grade curriculum (see TutorHub's unit
+  titles — ELA, math, science, and social studies all land at this level).
+  Earlier drafts of this file used Fry's Instant Words / Dolch sight words,
+  which are early-elementary lists — too easy for his actual grade level —
+  and were replaced with this one.
 
 Each file is loaded into the Worker's KV word-list store via
 `scripts/seed-wordlists.mjs`, which POSTs it to `/api/admin/wordlist` as its

@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Reader — Word Helper</title>
+<style>
+  :root {
+    --deep-space: #0b1024;
+    --panel: #131a35;
+    --star: #ffe9a8;
+    --nebula: #7c8cff;
+    --nebula-soft: #3d4a8f;
+    --success: #6bdc9c;
+    --error: #ff9a8a;
+    --text: #eef0ff;
+    --text-dim: #a8afd6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(ellipse at top, #1a2150 0%, var(--deep-space) 60%);
+    font-family: 'Baloo 2', 'Comic Sans MS', system-ui, sans-serif;
+    color: var(--text);
+  }
+  #stars {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+  .star {
+    position: absolute; background: var(--star); border-radius: 50%;
+    opacity: 0.6; animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle { 0%,100% { opacity: .2; } 50% { opacity: .9; } }
+
+  .nav-link {
+    position: fixed; top: 16px; z-index: 2;
+    color: var(--text-dim); text-decoration: none;
+    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--nebula-soft);
+    background: var(--deep-space);
+  }
+  .nav-link.home { left: 16px; }
+  .nav-link:hover { color: var(--text); border-color: var(--nebula); }
+
+  main {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100%; padding: 72px 24px 40px; text-align: center;
+  }
+
+  .mascot {
+    font-size: 56px; margin-bottom: 8px;
+    filter: drop-shadow(0 0 12px rgba(124,140,255,0.6));
+    animation: float 4s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-8px);} }
+
+  .prompt-panel {
+    background: var(--panel);
+    border: 2px solid var(--nebula-soft);
+    border-radius: 28px;
+    padding: 36px 32px;
+    box-shadow: 0 0 40px rgba(124,140,255,0.25), inset 0 0 60px rgba(124,140,255,0.05);
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .hint {
+    font-size: 18px;
+    color: var(--text-dim);
+    margin: 0 0 20px;
+  }
+
+  .photo-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--nebula);
+    color: var(--text);
+    border: none;
+    border-radius: 16px;
+    padding: 16px 28px;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .photo-btn:active { transform: scale(0.97); }
+
+  .preview-img {
+    max-width: 100%;
+    max-height: 220px;
+    border-radius: 16px;
+    border: 2px solid var(--nebula-soft);
+  }
+
+  .status-line {
+    margin-top: 16px;
+    font-size: 17px;
+    color: var(--text-dim);
+    min-height: 24px;
+  }
+  .status-line.error { color: var(--error); }
+
+  .word-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .word-chip {
+    background: rgba(124,140,255,0.14);
+    border: 2px solid var(--nebula-soft);
+    color: var(--text);
+    border-radius: 14px;
+    padding: 10px 18px;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .word-chip:active { transform: scale(0.96); }
+  .word-chip.selected { border-color: var(--star); background: rgba(255,233,168,0.15); }
+
+  .word-title {
+    font-size: 34px;
+    font-weight: 700;
+    margin: 4px 0 20px;
+  }
+
+  .action-row {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .action-btn {
+    background: rgba(124,140,255,0.14);
+    border: 2px solid var(--nebula-soft);
+    color: var(--text);
+    border-radius: 14px;
+    padding: 12px 18px;
+    font-size: 17px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .action-btn:active { transform: scale(0.97); }
+  .action-btn.active { border-color: var(--nebula); background: rgba(124,140,255,0.24); }
+
+  .detail-output {
+    margin-top: 18px;
+    min-height: 20px;
+  }
+  .definition-text {
+    font-size: 19px;
+    line-height: 1.5;
+  }
+
+  .syllable-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .syllable {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 30px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .syllable.c0 { background: rgba(255,233,168,0.18); color: var(--star); }
+  .syllable.c1 { background: rgba(124,140,255,0.22); color: var(--nebula); }
+  .syllable-hint {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .retake-btn {
+    margin-top: 22px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 14px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .retake-btn:hover { color: var(--text); }
+
+  .debug-line {
+    display: none;
+    position: fixed;
+    bottom: 8px; left: 8px; right: 8px;
+    z-index: 2;
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    text-align: left;
+  }
+  .debug-line.on { display: block; }
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<a class="nav-link home" href="./index.html">🏠 Home</a>
+<main>
+  <div class="mascot">🚀</div>
+  <div class="prompt-panel" id="promptPanel">
+
+    <div id="captureStage">
+      <p class="hint">Stuck on a word? Take a photo of it.</p>
+      <label class="photo-btn" for="photoInput">📷 Take a photo</label>
+      <input type="file" accept="image/*" capture="environment" id="photoInput" hidden>
+    </div>
+
+    <div id="previewStage" hidden>
+      <img class="preview-img" id="previewImg" alt="">
+      <p class="status-line" id="statusLine"></p>
+    </div>
+
+    <div id="wordsStage" hidden>
+      <p class="hint" id="wordsHint">Which word?</p>
+      <div class="word-chips" id="wordChips"></div>
+    </div>
+
+    <div id="detailStage" hidden>
+      <p class="word-title" id="wordTitle"></p>
+      <div class="action-row">
+        <button class="action-btn" id="hearBtn">🔊 Hear it</button>
+        <button class="action-btn" id="breakBtn">🧩 Break it down</button>
+        <button class="action-btn" id="defineBtn">📖 What does it mean?</button>
+      </div>
+      <div class="detail-output" id="detailOutput"></div>
+    </div>
+
+    <button class="retake-btn" id="retakeBtn" hidden>📷 New photo</button>
+  </div>
+</main>
+<div class="debug-line" id="debugLine"></div>
+
+<script>
+/* ---------- Config ---------- */
+const ANALYZE_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/word-helper/analyze";
+const LOG_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/word-helper/log";
+const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
+
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+const debugLine = document.getElementById("debugLine");
+if (DEBUG) debugLine.classList.add("on");
+
+/* Starfield background */
+(function makeStars() {
+  const field = document.getElementById("stars");
+  for (let i = 0; i < 60; i++) {
+    const s = document.createElement("div");
+    s.className = "star";
+    const size = Math.random() * 2 + 1;
+    s.style.width = s.style.height = size + "px";
+    s.style.left = Math.random() * 100 + "%";
+    s.style.top = Math.random() * 100 + "%";
+    s.style.animationDelay = (Math.random() * 3) + "s";
+    field.appendChild(s);
+  }
+})();
+
+const ttsPlayer = new Audio();
+let audioUnlocked = false;
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+}
+
+async function playWord(word, rate) {
+  try {
+    const url = `${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    ttsPlayer.src = URL.createObjectURL(blob);
+    await ttsPlayer.play();
+  } catch (err) {
+    // Non-blocking: the text stays on screen even if audio fails.
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const captureStage = document.getElementById("captureStage");
+const previewStage = document.getElementById("previewStage");
+const wordsStage = document.getElementById("wordsStage");
+const detailStage = document.getElementById("detailStage");
+const photoInput = document.getElementById("photoInput");
+const previewImg = document.getElementById("previewImg");
+const statusLine = document.getElementById("statusLine");
+const wordsHint = document.getElementById("wordsHint");
+const wordChips = document.getElementById("wordChips");
+const wordTitle = document.getElementById("wordTitle");
+const hearBtn = document.getElementById("hearBtn");
+const breakBtn = document.getElementById("breakBtn");
+const defineBtn = document.getElementById("defineBtn");
+const detailOutput = document.getElementById("detailOutput");
+const retakeBtn = document.getElementById("retakeBtn");
+
+let detectedWords = []; // [{word, definition, syllables}]
+let selectedWord = null;
+let loggedWords = new Set(); // avoid double-logging the same word within one photo
+
+photoInput.addEventListener("change", () => {
+  unlockAudioPlayback(); // synchronous in this gesture, before any await downstream
+  const file = photoInput.files[0];
+  if (file) handlePhoto(file);
+});
+
+async function handlePhoto(file) {
+  resetToPreview();
+
+  let downscaled;
+  try {
+    downscaled = await downscaleImage(file, 1600, 0.85);
+  } catch (err) {
+    downscaled = file; // fall back to the original if canvas processing fails
+  }
+
+  previewImg.src = URL.createObjectURL(downscaled);
+  statusLine.className = "status-line";
+  statusLine.textContent = "Looking at your photo...";
+
+  try {
+    const formData = new FormData();
+    formData.append("image", downscaled, "word.jpg");
+    const res = await fetch(ANALYZE_ENDPOINT, { method: "POST", body: formData });
+    const result = await res.json();
+
+    if (DEBUG) {
+      debugLine.textContent = `words=${JSON.stringify(result.words || result.error)}`;
+    }
+
+    if (!res.ok || result.error) {
+      statusLine.className = "status-line error";
+      statusLine.textContent = result.error || "Couldn't read that photo — try again.";
+      showRetake();
+      return;
+    }
+
+    detectedWords = result.words || [];
+    if (!detectedWords.length) {
+      statusLine.className = "status-line error";
+      statusLine.textContent = "I couldn't find a word in that photo — try getting closer.";
+      showRetake();
+      return;
+    }
+
+    statusLine.textContent = "";
+    showWordChoices();
+  } catch (err) {
+    statusLine.className = "status-line error";
+    statusLine.textContent = "Hmm, that didn't send. Try again!";
+    showRetake();
+  }
+}
+
+// Shrinks and re-encodes the photo client-side before upload — phone camera
+// captures can be several megabytes at full resolution, which is unnecessary
+// for reading a single word and slows the round trip.
+function downscaleImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))), "image/jpeg", quality);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function showWordChoices() {
+  previewStage.hidden = true;
+  if (detectedWords.length === 1) {
+    selectWord(detectedWords[0]);
+    return;
+  }
+  wordsStage.hidden = false;
+  wordChips.innerHTML = "";
+  detectedWords.forEach((w) => {
+    const btn = document.createElement("button");
+    btn.className = "word-chip";
+    btn.textContent = w.word;
+    btn.addEventListener("click", () => selectWord(w));
+    wordChips.appendChild(btn);
+  });
+  showRetake();
+}
+
+function selectWord(wordData) {
+  selectedWord = wordData;
+  wordsStage.hidden = true;
+  previewStage.hidden = true;
+  detailStage.hidden = false;
+  wordTitle.textContent = wordData.word;
+  detailOutput.innerHTML = "";
+  [hearBtn, breakBtn, defineBtn].forEach((b) => b.classList.remove("active"));
+  showRetake();
+
+  if (!loggedWords.has(wordData.word)) {
+    loggedWords.add(wordData.word);
+    fetch(LOG_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ word: wordData.word }),
+    }).catch(() => {}); // best-effort — never blocks the child's flow
+  }
+}
+
+hearBtn.addEventListener("click", () => {
+  setActiveAction(hearBtn);
+  playWord(selectedWord.word, "normal");
+  detailOutput.innerHTML = "";
+});
+
+breakBtn.addEventListener("click", () => {
+  setActiveAction(breakBtn);
+  renderSyllables(selectedWord.syllables, selectedWord.word);
+});
+
+defineBtn.addEventListener("click", () => {
+  setActiveAction(defineBtn);
+  detailOutput.innerHTML = `<p class="definition-text">${escapeHtml(selectedWord.definition || "No definition available.")}</p>`;
+});
+
+function setActiveAction(activeBtn) {
+  [hearBtn, breakBtn, defineBtn].forEach((b) => b.classList.toggle("active", b === activeBtn));
+}
+
+function renderSyllables(syllables, word) {
+  if (!syllables || syllables.length < 2) {
+    detailOutput.innerHTML = `<p class="definition-text">${escapeHtml(word)}</p><p class="syllable-hint">One syllable — no need to break it down!</p>`;
+    return;
+  }
+  const row = document.createElement("div");
+  row.className = "syllable-row";
+  syllables.forEach((s, i) => {
+    const span = document.createElement("span");
+    span.className = `syllable c${i % 2}`;
+    span.textContent = s;
+    span.addEventListener("click", () => playWord(s, "slow"));
+    row.appendChild(span);
+  });
+  detailOutput.innerHTML = "";
+  detailOutput.appendChild(row);
+  const hint = document.createElement("p");
+  hint.className = "syllable-hint";
+  hint.textContent = "Tap a piece to hear it";
+  detailOutput.appendChild(hint);
+}
+
+function showRetake() {
+  retakeBtn.hidden = false;
+}
+
+function resetToPreview() {
+  captureStage.hidden = true;
+  wordsStage.hidden = true;
+  detailStage.hidden = true;
+  previewStage.hidden = false;
+  retakeBtn.hidden = true;
+  detectedWords = [];
+  selectedWord = null;
+  loggedWords = new Set();
+}
+
+retakeBtn.addEventListener("click", () => {
+  captureStage.hidden = false;
+  previewStage.hidden = true;
+  wordsStage.hidden = true;
+  detailStage.hidden = true;
+  retakeBtn.hidden = true;
+  photoInput.value = "";
+});
+</script>
+</body>
+</html>

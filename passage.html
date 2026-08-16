@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Reader — Passage Reading</title>
+<style>
+  :root {
+    --deep-space: #0b1024;
+    --panel: #131a35;
+    --star: #ffe9a8;
+    --nebula: #7c8cff;
+    --nebula-soft: #3d4a8f;
+    --success: #6bdc9c;
+    --amber: #f0b95c;
+    --error: #ff9a8a;
+    --text: #eef0ff;
+    --text-dim: #a8afd6;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(ellipse at top, #1a2150 0%, var(--deep-space) 60%);
+    font-family: 'Baloo 2', 'Comic Sans MS', system-ui, sans-serif;
+    color: var(--text);
+  }
+  #stars {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+  .star {
+    position: absolute; background: var(--star); border-radius: 50%;
+    opacity: 0.6; animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle { 0%,100% { opacity: .2; } 50% { opacity: .9; } }
+
+  .nav-link {
+    position: fixed; top: 16px; left: 16px; z-index: 2;
+    color: var(--text-dim); text-decoration: none;
+    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--nebula-soft);
+    background: var(--deep-space);
+  }
+  .nav-link:hover { color: var(--text); border-color: var(--nebula); }
+
+  main {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100%; padding: 72px 20px 40px; text-align: center;
+  }
+
+  .mascot {
+    font-size: 48px; margin-bottom: 6px;
+    filter: drop-shadow(0 0 12px rgba(124,140,255,0.6));
+    animation: float 4s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-8px);} }
+
+  .prompt-panel {
+    background: var(--panel);
+    border: 2px solid var(--nebula-soft);
+    border-radius: 28px;
+    padding: 28px 26px;
+    box-shadow: 0 0 40px rgba(124,140,255,0.25), inset 0 0 60px rgba(124,140,255,0.05);
+    width: 100%;
+    max-width: 520px;
+    transition: border-color 0.3s ease;
+  }
+  .prompt-panel.recording { border-color: var(--star); }
+  .prompt-panel.correct { border-color: var(--success); }
+  .prompt-panel.incorrect { border-color: var(--error); }
+
+  .passage-text {
+    font-size: 19px;
+    line-height: 1.65;
+    text-align: left;
+    margin: 0 0 20px;
+  }
+  .passage-text .weak-word {
+    color: var(--amber);
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+  }
+
+  .btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .action-btn {
+    background: var(--nebula);
+    color: var(--text);
+    border: none;
+    border-radius: 14px;
+    padding: 12px 22px;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .action-btn.secondary {
+    background: rgba(124,140,255,0.14);
+    border: 2px solid var(--nebula-soft);
+  }
+  .action-btn.stop {
+    background: var(--error);
+    color: #3a1410;
+  }
+  .action-btn:disabled { opacity: 0.5; cursor: default; }
+  .action-btn:active:not(:disabled) { transform: scale(0.97); }
+
+  .status-line {
+    margin-top: 16px;
+    font-size: 17px;
+    color: var(--text-dim);
+    min-height: 24px;
+  }
+
+  .rec-indicator {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+    color: var(--star);
+    font-weight: 700;
+  }
+  .rec-indicator.on { display: flex; }
+  .rec-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--error);
+    animation: pulse-dot 1s ease-in-out infinite;
+  }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .score-summary {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .score-detail {
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-bottom: 18px;
+  }
+
+  .question-block {
+    margin-top: 4px;
+    text-align: left;
+  }
+  .question-prompt {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .option-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: rgba(124,140,255,0.1);
+    border: 2px solid var(--nebula-soft);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 15px;
+    font-family: inherit;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .option-btn:active:not(:disabled) { transform: scale(0.98); }
+  .option-btn.correct { border-color: var(--success); background: rgba(107,220,156,0.16); }
+  .option-btn.incorrect { border-color: var(--error); background: rgba(255,154,138,0.14); }
+  .option-btn:disabled { cursor: default; }
+
+  .star-trail {
+    display: flex; gap: 10px; margin-top: 28px;
+  }
+  .star-trail span {
+    width: 14px; height: 14px;
+    background: var(--nebula-soft);
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    transition: background 0.4s ease, transform 0.4s ease;
+  }
+  .star-trail span.lit {
+    background: var(--star);
+    transform: scale(1.3);
+  }
+
+  .debug-line {
+    display: none;
+    position: fixed;
+    bottom: 8px; left: 8px; right: 8px;
+    z-index: 2;
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    text-align: left;
+  }
+  .debug-line.on { display: block; }
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<a class="nav-link" href="./index.html">🏠 Home</a>
+<main>
+  <div class="mascot">🚀</div>
+  <div class="prompt-panel" id="promptPanel">
+    <p class="passage-text" id="passageText">Getting your passage ready...</p>
+    <div class="btn-row" id="preRecordBtns">
+      <button class="action-btn secondary" id="hearBtn">🔊 Hear it first</button>
+      <button class="action-btn" id="startBtn">🎤 Start reading</button>
+    </div>
+    <div class="rec-indicator" id="recIndicator"><span class="rec-dot"></span> Recording...</div>
+    <div class="btn-row" id="recordingBtns" style="display:none;">
+      <button class="action-btn stop" id="stopBtn">✅ I'm done</button>
+    </div>
+    <p class="status-line" id="statusLine"></p>
+
+    <div id="resultBlock" style="display:none;">
+      <p class="score-summary" id="scoreSummary"></p>
+      <p class="score-detail" id="scoreDetail"></p>
+      <div class="btn-row">
+        <button class="action-btn secondary" id="continueBtn">Continue →</button>
+      </div>
+    </div>
+
+    <div id="questionBlock" class="question-block" style="display:none;">
+      <p class="question-prompt" id="questionPrompt"></p>
+      <div id="optionsList"></div>
+    </div>
+  </div>
+  <div class="star-trail" id="starTrail"></div>
+</main>
+<div class="debug-line" id="debugLine"></div>
+
+<script>
+/* ---------- Config ---------- */
+const SESSION_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/passage/session";
+const SCORE_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/passage/score";
+const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
+const MAX_RECORDING_MS = 90000; // safety cutoff for a forgotten "I'm done" tap
+
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+const debugLine = document.getElementById("debugLine");
+if (DEBUG) debugLine.classList.add("on");
+
+/* Starfield background */
+(function makeStars() {
+  const field = document.getElementById("stars");
+  for (let i = 0; i < 60; i++) {
+    const s = document.createElement("div");
+    s.className = "star";
+    const size = Math.random() * 2 + 1;
+    s.style.width = s.style.height = size + "px";
+    s.style.left = Math.random() * 100 + "%";
+    s.style.top = Math.random() * 100 + "%";
+    s.style.animationDelay = (Math.random() * 3) + "s";
+    field.appendChild(s);
+  }
+})();
+
+const ttsPlayer = new Audio();
+let audioUnlocked = false;
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+}
+
+async function playText(text, rate) {
+  try {
+    const url = `${TTS_ENDPOINT}?word=${encodeURIComponent(text)}&rate=${rate}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    ttsPlayer.src = URL.createObjectURL(blob);
+    await ttsPlayer.play();
+  } catch (err) {
+    // Non-blocking: the passage text stays readable even if audio fails.
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const promptPanel = document.getElementById("promptPanel");
+const passageText = document.getElementById("passageText");
+const hearBtn = document.getElementById("hearBtn");
+const startBtn = document.getElementById("startBtn");
+const preRecordBtns = document.getElementById("preRecordBtns");
+const recIndicator = document.getElementById("recIndicator");
+const recordingBtns = document.getElementById("recordingBtns");
+const stopBtn = document.getElementById("stopBtn");
+const statusLine = document.getElementById("statusLine");
+const resultBlock = document.getElementById("resultBlock");
+const scoreSummary = document.getElementById("scoreSummary");
+const scoreDetail = document.getElementById("scoreDetail");
+const continueBtn = document.getElementById("continueBtn");
+const questionBlock = document.getElementById("questionBlock");
+const questionPrompt = document.getElementById("questionPrompt");
+const optionsList = document.getElementById("optionsList");
+const starTrail = document.getElementById("starTrail");
+
+let PASSAGES = [];
+let passageIndex = 0;
+let audioContext, scriptProcessor, recordedChunks = [], recordingTimeout;
+
+async function initSession() {
+  startBtn.disabled = true;
+  try {
+    const res = await fetch(SESSION_ENDPOINT);
+    const data = await res.json();
+    PASSAGES = Array.isArray(data.passages) ? data.passages : [];
+  } catch (err) {
+    PASSAGES = [];
+  }
+  if (!PASSAGES.length) {
+    passageText.textContent = "Couldn't load a passage right now — try again in a bit.";
+    return;
+  }
+  buildStarTrail();
+  showPassage();
+  startBtn.disabled = false;
+}
+
+initSession();
+
+function buildStarTrail() {
+  starTrail.innerHTML = "";
+  PASSAGES.forEach(() => {
+    const s = document.createElement("span");
+    starTrail.appendChild(s);
+  });
+}
+
+function showPassage() {
+  promptPanel.classList.remove("recording", "correct", "incorrect");
+  const passage = PASSAGES[passageIndex];
+  passageText.textContent = passage.text;
+  statusLine.textContent = "";
+  preRecordBtns.style.display = "flex";
+  recordingBtns.style.display = "none";
+  resultBlock.style.display = "none";
+  questionBlock.style.display = "none";
+}
+
+hearBtn.addEventListener("click", () => {
+  unlockAudioPlayback();
+  playText(PASSAGES[passageIndex].text, "normal");
+});
+
+startBtn.addEventListener("click", startRecording);
+stopBtn.addEventListener("click", () => stopRecording());
+
+async function startRecording() {
+  unlockAudioPlayback(); // synchronous in this gesture, before any await
+  preRecordBtns.style.display = "none";
+  recordingBtns.style.display = "flex";
+  recIndicator.classList.add("on");
+  promptPanel.classList.add("recording");
+  statusLine.textContent = "Read the passage out loud, then tap “I'm done.”";
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    setupRecording(stream);
+    recordingTimeout = setTimeout(() => stopRecording(stream), MAX_RECORDING_MS);
+  } catch (err) {
+    statusLine.textContent = "Couldn't access the microphone";
+    preRecordBtns.style.display = "flex";
+    recordingBtns.style.display = "none";
+    recIndicator.classList.remove("on");
+  }
+}
+
+// Same 16kHz-mono-PCM approach as the sight-word drill, but no voice-activity
+// detection — a passage takes much longer to read than a single word, so this
+// is a manual start/"I'm done" recording instead of an auto-stop-on-speech one.
+function setupRecording(stream) {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(stream);
+  recordedChunks = [];
+  scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+  const silentGain = audioContext.createGain();
+  silentGain.gain.value = 0;
+  source.connect(scriptProcessor);
+  scriptProcessor.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+  scriptProcessor.onaudioprocess = (e) => {
+    recordedChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  };
+  window.__activeStream = stream;
+}
+
+function stopRecording() {
+  if (!scriptProcessor) return;
+  clearTimeout(recordingTimeout);
+  scriptProcessor.disconnect();
+  scriptProcessor.onaudioprocess = null;
+  scriptProcessor = null;
+  if (window.__activeStream) {
+    window.__activeStream.getTracks().forEach((t) => t.stop());
+    window.__activeStream = null;
+  }
+
+  recIndicator.classList.remove("on");
+  recordingBtns.style.display = "none";
+  promptPanel.classList.remove("recording");
+
+  const sampleRate = audioContext.sampleRate;
+  const samples = mergeFloat32Arrays(recordedChunks);
+  audioContext.close();
+  handleRecordingComplete(samples, sampleRate);
+}
+
+function mergeFloat32Arrays(chunks) {
+  const length = chunks.reduce((sum, c) => sum + c.length, 0);
+  const result = new Float32Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+function downsampleTo16k(samples, inputSampleRate) {
+  const targetRate = 16000;
+  if (inputSampleRate === targetRate) return samples;
+  const ratio = inputSampleRate / targetRate;
+  const newLength = Math.round(samples.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    result[i] = samples[Math.floor(i * ratio)];
+  }
+  return result;
+}
+
+function encodeWAV(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([view], { type: "audio/wav" });
+}
+
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+async function handleRecordingComplete(samples, sampleRate) {
+  statusLine.textContent = "Checking your reading...";
+  const pcm16k = downsampleTo16k(samples, sampleRate);
+  const blob = encodeWAV(pcm16k, 16000);
+  const passage = PASSAGES[passageIndex];
+
+  try {
+    const formData = new FormData();
+    formData.append("audio", blob, "passage.wav");
+    formData.append("passageId", passage.id);
+    formData.append("targetText", passage.text);
+
+    const res = await fetch(SCORE_ENDPOINT, { method: "POST", body: formData });
+    const result = await res.json();
+
+    if (DEBUG) {
+      debugLine.textContent = `passage=${passage.id} accuracy=${result.overallAccuracy} fluency=${result.fluencyScore} completeness=${result.completenessScore} weakWords=${JSON.stringify(result.weakWords)} transcript="${result.transcript || ""}"`;
+    }
+
+    if (!res.ok || result.error) {
+      statusLine.textContent = result.error || "Hmm, that didn't send. Try again!";
+      preRecordBtns.style.display = "flex";
+      return;
+    }
+
+    statusLine.textContent = "";
+    showResult(result);
+  } catch (err) {
+    statusLine.textContent = "Hmm, that didn't send. Try again!";
+    preRecordBtns.style.display = "flex";
+  }
+}
+
+function showResult(result) {
+  const accuracy = result.overallAccuracy || 0;
+  let tier;
+  if (accuracy >= 90) tier = { cls: "correct", text: "Excellent reading! 🌟" };
+  else if (accuracy >= 75) tier = { cls: "correct", text: "Nice work! 👍" };
+  else tier = { cls: "incorrect", text: "Good try — let's keep practicing this one." };
+
+  promptPanel.classList.add(tier.cls);
+  scoreSummary.textContent = tier.text;
+
+  const weakWords = new Set((result.weakWords || []).map((w) => w.toLowerCase()));
+  if (weakWords.size) {
+    const highlighted = PASSAGES[passageIndex].text
+      .split(/(\s+)/)
+      .map((token) => {
+        const stripped = token.toLowerCase().replace(/[^a-z']/g, "");
+        return weakWords.has(stripped) ? `<span class="weak-word">${escapeHtml(token)}</span>` : escapeHtml(token);
+      })
+      .join("");
+    passageText.innerHTML = highlighted;
+    scoreDetail.textContent = "The highlighted words could use another look.";
+  } else {
+    scoreDetail.textContent = "Every word came through clearly.";
+  }
+
+  resultBlock.style.display = "block";
+}
+
+continueBtn.addEventListener("click", () => {
+  resultBlock.style.display = "none";
+  showQuestion();
+});
+
+function showQuestion() {
+  const question = PASSAGES[passageIndex].question;
+  questionPrompt.textContent = question.prompt;
+  optionsList.innerHTML = "";
+  question.options.forEach((opt, i) => {
+    const btn = document.createElement("button");
+    btn.className = "option-btn";
+    btn.textContent = opt;
+    btn.addEventListener("click", () => answerQuestion(i, question.correctIndex, btn));
+    optionsList.appendChild(btn);
+  });
+  questionBlock.style.display = "block";
+}
+
+function answerQuestion(selectedIndex, correctIndex, selectedBtn) {
+  const buttons = optionsList.querySelectorAll(".option-btn");
+  buttons.forEach((b, i) => {
+    b.disabled = true;
+    if (i === correctIndex) b.classList.add("correct");
+    else if (i === selectedIndex) b.classList.add("incorrect");
+  });
+  lightStar(passageIndex);
+  setTimeout(nextPassage, 1800);
+}
+
+function lightStar(i) {
+  const stars = starTrail.querySelectorAll("span");
+  if (stars[i]) stars[i].classList.add("lit");
+}
+
+function nextPassage() {
+  passageIndex++;
+  if (passageIndex >= PASSAGES.length) {
+    promptPanel.classList.remove("correct", "incorrect");
+    passageText.textContent = "🎉 Session complete! Great reading, astronaut.";
+    preRecordBtns.style.display = "none";
+    questionBlock.style.display = "none";
+    resultBlock.style.display = "none";
+    return;
+  }
+  showPassage();
+}
+</script>
+</body>
+</html>
