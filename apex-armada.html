@@ -193,6 +193,28 @@
     white-space: pre-wrap; text-align: left;
   }
   .debug-line.on { display: block; }
+
+  .briefing-screen {
+    display: none;
+    position: relative; z-index: 1;
+    flex-direction: column; align-items: center; gap: 14px;
+    max-width: 440px; text-align: center;
+    background: var(--panel);
+    border: 2px solid var(--panel-line);
+    border-radius: 26px;
+    padding: 30px 34px;
+    box-shadow: 0 0 40px rgba(56,224,200,0.18), inset 0 0 50px rgba(56,224,200,0.05);
+  }
+  .briefing-screen.show { display: flex; }
+  .briefing-screen h2 { margin: 2px 0 0; font-size: 24px; }
+  .briefing-screen .briefing-gif { max-width: 200px; width: 56vw; border-radius: 14px; }
+  .briefing-screen .briefing-lede { color: var(--text-dim); font-size: 15px; line-height: 1.5; margin: 0; }
+  .briefing-screen .briefing-list {
+    list-style: none; padding: 0; margin: 4px 0 0; text-align: left;
+    display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text);
+  }
+  .briefing-screen .briefing-list li { display: flex; gap: 8px; align-items: flex-start; }
+  .briefing-screen .fire-btn { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -206,7 +228,23 @@
 <audio id="missSound" src="./assets/apex-armada/dino-roar.mp3" preload="none"></audio>
 
 <main>
-  <div id="playArea">
+  <div class="briefing-screen show" id="briefingScreen">
+    <img class="briefing-gif" src="./assets/apex-armada/trex-idle.gif" alt="" onerror="this.style.display='none'">
+    <h2>🦖🚀 Apex Armada</h2>
+    <button class="listen-btn-flat" id="briefingAudioBtn" type="button">📻 Play Briefing</button>
+    <p class="briefing-lede">
+      A cybernetic dreadnought is closing in. Your mission: load the cipher breech and fire back — by spelling the words correctly.
+    </p>
+    <ul class="briefing-list">
+      <li>🔤 Read (or tap Recon to hear) the word, then type it to fire</li>
+      <li>📡 Some rounds carry a sonar transmission — decode the word hidden inside it</li>
+      <li>🔀 Stuck? Use the help buttons: Re-scramble, First/Last letter, Definition, Sound It Out</li>
+      <li>🎵 Music and sound are optional — toggle them anytime with the button in the corner</li>
+    </ul>
+    <button class="fire-btn" id="beginBtn" type="button">🚀 Begin Mission</button>
+  </div>
+
+  <div id="playArea" style="display:none">
     <div class="command-header">
       <h1>🦖🚀 Apex Armada</h1>
       <p class="subtitle">Load the cipher breech and fire on the dreadnought!</p>
@@ -273,6 +311,9 @@ const debugLine = document.getElementById("debugLine");
 if (DEBUG) debugLine.classList.add("on");
 
 /* ---------- DOM refs ---------- */
+const briefingScreen = document.getElementById("briefingScreen");
+const beginBtn = document.getElementById("beginBtn");
+const briefingAudioBtn = document.getElementById("briefingAudioBtn");
 const playArea = document.getElementById("playArea");
 const endScreen = document.getElementById("endScreen");
 const endSummary = document.getElementById("endSummary");
@@ -369,6 +410,112 @@ listenBtn.addEventListener("click", () => {
   playWord(SESSION_WORDS[roundIndex]);
 });
 
+/* ---------- Briefing narration (captain's voice, over radio) ---------- */
+const RADIO_VOICE = "en-US-GuyNeural";
+const RADIO_PITCH = "-8%";
+const BRIEFING_SCRIPT =
+  "Listen up, Commander. A cybernetic dreadnought is closing in, and it is not slowing down. " +
+  "Our only weapon is the cipher breech: read or listen to the word, spell it correctly, and fire. " +
+  "Some transmissions come in scrambled — decode the word hidden inside before you can fire on it. " +
+  "If you get stuck, use the helper console: re-scramble, first and last letter, definition, or sound it out. " +
+  "Load the breech, Commander. Let's take this thing down.";
+
+// Soft clipping curve — the "compressed and a little crunchy" character of a
+// cheap ship radio speaker, not a clean TTS read.
+function makeRadioDistortionCurve(amount) {
+  const n = 44100;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+// Quiet static bed under the voice, same duration, filtered the same way so it
+// reads as part of the transmission rather than separate noise.
+function playRadioStatic(audioCtx, duration) {
+  const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.05;
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = "bandpass";
+  noiseFilter.frequency.value = 1800;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.5;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(audioCtx.destination);
+  noise.start();
+}
+
+// Fetches the briefing as speech (deeper "captain" voice + pitch, via /api/tts),
+// then runs it through a small Web Audio filter chain — highpass + narrow
+// bandpass + soft-clip distortion, plus a quiet static bed — so it sounds like
+// it's coming over the ship's radio instead of a clean TTS read.
+async function playBriefingOverRadio(text) {
+  const url = `${TTS_ENDPOINT}?word=${encodeURIComponent(text)}&rate=normal&voice=${RADIO_VOICE}&pitch=${RADIO_PITCH}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`TTS request failed: ${res.status}`);
+  const arrayBuffer = await res.arrayBuffer();
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = audioBuffer;
+
+  const highpass = audioCtx.createBiquadFilter();
+  highpass.type = "highpass";
+  highpass.frequency.value = 300;
+
+  const bandpass = audioCtx.createBiquadFilter();
+  bandpass.type = "bandpass";
+  bandpass.frequency.value = 1600;
+  bandpass.Q.value = 0.7;
+
+  const shaper = audioCtx.createWaveShaper();
+  shaper.curve = makeRadioDistortionCurve(18);
+  shaper.oversample = "2x";
+
+  const gain = audioCtx.createGain();
+  gain.gain.value = 1.6; // compensate for the filtering/distortion cutting perceived loudness
+
+  source.connect(highpass);
+  highpass.connect(bandpass);
+  bandpass.connect(shaper);
+  shaper.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  playRadioStatic(audioCtx, audioBuffer.duration);
+
+  return new Promise((resolve) => {
+    source.onended = () => {
+      audioCtx.close();
+      resolve();
+    };
+    source.start();
+  });
+}
+
+briefingAudioBtn.addEventListener("click", async () => {
+  unlockAudioPlayback();
+  briefingAudioBtn.disabled = true;
+  briefingAudioBtn.textContent = "📻 Transmitting...";
+  try {
+    await playBriefingOverRadio(BRIEFING_SCRIPT);
+  } catch (err) {
+    // Non-blocking: the written briefing still stands without narration.
+  }
+  briefingAudioBtn.disabled = false;
+  briefingAudioBtn.textContent = "📻 Play Briefing";
+});
+
 /* ---------- Ambient canvas scene (first-person cockpit, deep space) ---------- */
 const canvas = document.getElementById("scene");
 const ctx = canvas.getContext("2d");
@@ -393,7 +540,9 @@ function loadDinoGif(path) {
 }
 const trexIdle = loadDinoGif("./assets/apex-armada/trex-idle.gif");
 const trexHit = loadDinoGif("./assets/apex-armada/trex-hit.gif");
+const trexMissFinal = loadDinoGif("./assets/apex-armada/trex-miss-final.gif");
 let dinoShowHitUntil = 0; // while t < this, draw trexHit instead of trexIdle
+let dinoShowMissFinalUntil = 0; // while t < this, draw trexMissFinal (the 3rd-miss regroup beat)
 
 // The T-Rex creeps toward the cockpit as Dustin misses words outright (not on
 // a forgiven first fumble — see registerMiss()). dinoProximity eases toward
@@ -472,8 +621,9 @@ function drawScene(t) {
   const dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
   const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 8;
   const dinoSize = Math.min(w, h) * 0.16 * (1 + dinoProximity * 0.5);
-  const useHit = t < dinoShowHitUntil && trexHit.ready;
-  const activeDino = useHit ? trexHit : trexIdle;
+  const useMissFinal = t < dinoShowMissFinalUntil && trexMissFinal.ready;
+  const useHit = !useMissFinal && t < dinoShowHitUntil && trexHit.ready;
+  const activeDino = useMissFinal ? trexMissFinal : useHit ? trexHit : trexIdle;
   ctx.save();
   ctx.shadowColor = "rgba(255,122,92,0.6)";
   ctx.shadowBlur = 24 + Math.sin(t / 500) * 8;
@@ -568,9 +718,10 @@ function registerMiss() {
   playMissSound();
   if (dinoThreatLevel >= DINO_THREAT_MAX) {
     triggerRegroupFx();
+    dinoShowMissFinalUntil = performance.now() + 2800; // let the clip read before falling back
     setTimeout(() => {
       dinoThreatLevel = 0;
-    }, 900);
+    }, 2800);
   } else {
     triggerMissFx();
   }
@@ -602,7 +753,15 @@ async function initSession() {
   buildSalvoMeter();
   showRound();
 }
-initSession();
+
+// Gameplay doesn't start until Dustin taps through the briefing — session
+// words aren't fetched, no music/etc. unlock attempt happens, until then.
+beginBtn.addEventListener("click", () => {
+  unlockAudioPlayback();
+  briefingScreen.classList.remove("show");
+  playArea.style.display = "";
+  initSession();
+});
 
 /* ---------- Round flow ---------- */
 function scrambleWord(word) {
@@ -760,7 +919,7 @@ function handleResult(correct, attempt, targetWord) {
   // escalates the dino's approach.
   registerMiss();
   showReveal(targetWord, attempt);
-  statusLine.textContent = "Here's the cipher, Commander";
+  statusLine.textContent = "Comms officer relays the cipher, Commander";
   setTimeout(nextRound, 3000);
 }
 

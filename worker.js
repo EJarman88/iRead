@@ -44,13 +44,17 @@
  *   isn't scored). Kept separate from /analyze so only words he actually opens count,
  *   not every word Claude happened to detect in a busier photo.
  *
- * Route: GET /api/tts?word=<word>&rate=slow|normal&phonemes=<space-separated SAPI codes>
+ * Route: GET /api/tts?word=<word>&rate=slow|normal&phonemes=<space-separated SAPI codes>&voice=<name>&pitch=<±N%>
  *   Returns audio/mpeg — spoken via Azure TTS (reuses the same Speech resource as
  *   scoring). Used for the whole-word "listen for the sound" hint (attempt 4+) and for
  *   tap-to-hear syllable pills (attempts 2-3). When `phonemes` is given, pronunciation
  *   is forced via an SSML <phoneme alphabet="sapi"> tag instead of guessed from `word`'s
  *   spelling — needed for isolated syllable fragments that aren't valid English spelling
  *   on their own (plain-text TTS on e.g. "dence" or a lone "i" mispronounces them).
+ *   `voice` (whitelisted: en-US-JennyNeural/GuyNeural/DavisNeural) and `pitch` (e.g.
+ *   "-8%") are optional overrides — Apex Armada's briefing narration uses these for a
+ *   deeper "captain" read, then applies its own radio-filter effect client-side.
+ *   `word` also just works as arbitrary sentence-length text, not only single words.
  *
  * Route: GET /api/sight-word/session-words
  *   Public, no gate. Returns { words: string[], source } — the word set for a drill
@@ -1286,6 +1290,18 @@ async function handleTTS(request, env) {
     const phonemesRaw = (url.searchParams.get("phonemes") || "").toString().trim();
     const phonemes = phonemesRaw.replace(/[^a-zA-Z0-9 ]/g, "").trim();
 
+    // Optional voice override, whitelisted (not passed straight through) since it
+    // lands in an SSML attribute — default is the existing word-pronunciation
+    // voice, so no caller is affected unless it explicitly asks for another one.
+    const ALLOWED_VOICES = new Set(["en-US-JennyNeural", "en-US-GuyNeural", "en-US-DavisNeural"]);
+    const voiceParam = (url.searchParams.get("voice") || "").toString().trim();
+    const voice = ALLOWED_VOICES.has(voiceParam) ? voiceParam : "en-US-JennyNeural";
+
+    // Optional pitch shift (e.g. "-8%"), whitelisted to a safe numeric-percent
+    // pattern for the same reason.
+    const pitchRaw = (url.searchParams.get("pitch") || "").toString().trim();
+    const pitch = /^-?\d{1,2}%$/.test(pitchRaw) ? pitchRaw : "0%";
+
     if (!word) {
       return jsonResponse({ error: "Missing word" }, 400);
     }
@@ -1301,7 +1317,7 @@ async function handleTTS(request, env) {
       : escapeXml(word);
     const ssml =
       `<speak version="1.0" xml:lang="en-US">` +
-      `<voice name="en-US-JennyNeural"><prosody rate="${rate}">${innerContent}</prosody></voice>` +
+      `<voice name="${voice}"><prosody rate="${rate}" pitch="${pitch}">${innerContent}</prosody></voice>` +
       `</speak>`;
 
     let res;
