@@ -93,6 +93,19 @@ wrapper — one word pool, one weighting function, not a separate one per interf
 
 ## Apex Armada — feature notes
 
+- **Theme pivoted from naval/ocean to space/cockpit** after Erica shared an
+  AI-generated video of a spacesuit-wearing T-Rex getting blasted from a ship's
+  cockpit. The canvas scene is now a first-person cockpit view (starfield,
+  drifting asteroids, twin cannon silhouettes at the bottom instead of a ship
+  sprite) rather than sonar/ocean waves — but the underlying weapon flavor text
+  ("breech," "salvo," "fire") barely had to change, since naval terminology
+  reads fine for spaceship weapons too. If more theme work happens later, keep
+  that in mind — most copy survives a visual reskin here.
+- The three `trex-*.gif` files in `assets/apex-armada/` were extracted directly
+  from that source video (cropped frames via Python/OpenCV/Pillow, not
+  hand-made art) — genuinely reasonable placeholders, not a "TODO: replace,"
+  but Erica may still send cleaner dedicated assets later under the same
+  filenames.
 - Typed input only. Speech input was explicitly deferred in the original handoff doc
   pending a fix to the sight-word drill's Azure webm/opus scoring bug — wire it in
   later via the same Azure Pronunciation Assessment path `reading.html` already uses.
