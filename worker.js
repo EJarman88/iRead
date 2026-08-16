@@ -84,6 +84,14 @@
  *   Session-specific data (score, wordsUsed, results, dispatchesShown, duration) is
  *   kept separately in reading:dustin:game:{sessionId}. Returns { ok, session }.
  *
+ * Route: POST /api/game/word-hint
+ *   JSON body: { word }. Stateless Claude-generated help lookup for Apex Armada's
+ *   Definition and Sound It Out buttons — a kid-friendly definition plus a spelled
+ *   syllable breakdown, same style as Word Helper's. No KV write (not a mastery
+ *   event). Returns { definition, syllables } with both null if ANTHROPIC_API_KEY
+ *   isn't configured or the call fails — client shows "hint unavailable" rather
+ *   than blocking play.
+ *
  * Route: GET /api/admin/wordlist
  *   Requires header X-Admin-Passcode matching the ADMIN_PASSCODE secret binding.
  *   Returns { wordlists: [{ source, wordCount, updatedAt }] } — existing batches.
@@ -372,6 +380,10 @@ export default {
 
     if (url.pathname === "/api/game/attempt" && request.method === "POST") {
       return withCors(await handleGameAttempt(request, env));
+    }
+
+    if (url.pathname === "/api/game/word-hint" && request.method === "POST") {
+      return withCors(await handleGameWordHint(request, env));
     }
 
     if (url.pathname === "/api/admin/wordlist" && request.method === "GET") {
@@ -803,6 +815,71 @@ async function handleGameAttempt(request, env) {
   } catch (err) {
     console.error("Game attempt error:", err && err.message);
     return jsonResponse({ error: "Failed to record attempt", detail: err && err.message }, 500);
+  }
+}
+
+const WORD_HINT_SYSTEM_PROMPT = `You help build a reading-support tool for a child. You will be given a single English word and must respond with ONLY valid JSON — no markdown code fences, no commentary before or after — matching exactly this shape:
+
+{"definition": "A short, simple sentence a 6-9 year old can understand, explaining what the word means, never using the word itself or an obvious variant of it.", "syllables": ["syl", "la", "bles"]}
+
+Rules:
+- "definition" is exactly one short, plain sentence — no jargon.
+- "syllables" is the word split into spelled syllable chunks (not phonetic symbols), e.g. "circumstance" -> ["cir", "cum", "stance"]. For a one-syllable word, return a single-element array containing the whole word.`;
+
+// Stateless — no KV write. This is a help/hint lookup, not a mastery event, so it
+// doesn't affect word selection or count as an attempt.
+async function handleGameWordHint(request, env) {
+  try {
+    const body = await request.json();
+    const word = (body.word || "").toString().trim().toLowerCase();
+    if (!word) {
+      return jsonResponse({ error: "Missing word" }, 400);
+    }
+
+    const apiKey = (env.ANTHROPIC_API_KEY || "").trim();
+    if (!apiKey) {
+      return jsonResponse({ definition: null, syllables: null });
+    }
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: DISPATCH_MODEL,
+        max_tokens: 200,
+        system: WORD_HINT_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: `The word is: "${word}"` }],
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("Word hint Anthropic API non-OK response:", res.status, await res.text());
+      return jsonResponse({ definition: null, syllables: null });
+    }
+
+    const data = await res.json();
+    const block = Array.isArray(data.content) ? data.content.find((c) => c.type === "text") : null;
+    const rawText = block && block.text ? block.text : "";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(stripJsonFences(rawText));
+    } catch (parseErr) {
+      console.error("Word hint: couldn't parse Claude response as JSON:", rawText);
+      return jsonResponse({ definition: null, syllables: null });
+    }
+
+    return jsonResponse({
+      definition: (parsed.definition || "").toString().trim() || null,
+      syllables: Array.isArray(parsed.syllables) ? parsed.syllables.map((s) => s.toString().toLowerCase()) : null,
+    });
+  } catch (err) {
+    console.error("Game word hint error:", err && err.message);
+    return jsonResponse({ definition: null, syllables: null });
   }
 }
 
