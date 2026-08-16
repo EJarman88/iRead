@@ -1,0 +1,22 @@
+{
+  // Deploy target for the Cloudflare Workers Builds Git integration (auto-deploys
+  // this repo's worker.js on every push). Name must match the connected Worker.
+  "name": "iread-apex",
+  "compatibility_date": "2026-08-16",
+  "main": "worker.js",
+
+  // Same TUTOR_KV namespace reader-app-worker uses — the whole point of this
+  // Worker is to serve the same live data, not a fresh empty store.
+  "kv_namespaces": [
+    { "binding": "TUTOR_KV", "id": "5d29c942a89c4eadb66aa8fb0418c6e1" }
+  ],
+
+  "vars": {
+    "AZURE_SPEECH_REGION": "eastus"
+  }
+
+  // Secrets (AZURE_SPEECH_KEY, ADMIN_PASSCODE, ANTHROPIC_API_KEY) are NOT declared
+  // here — they can't live in a committed file. Set them via the Cloudflare
+  // dashboard's Bindings/Variables tab on iread-apex directly; they persist across
+  // deploys independently of this config.
+}
