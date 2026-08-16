@@ -67,6 +67,29 @@
  *   raw pasted text (newline or comma separated). Parses, dedupes, and writes to
  *   reading:dustin:wordlist:{source}.
  *
+ * Route: GET /api/passage/session
+ *   Public, no gate. Returns { passages: [{ id, text, question: { prompt, options,
+ *   correctIndex } }] } — PASSAGE_SESSION_COUNT random passages from the built-in
+ *   PASSAGES bank (short, original, 6th/7th-grade-level — grade-matched to Dustin's
+ *   actual curriculum per TutorHub, not early-elementary content). The comprehension
+ *   answer key ships with the payload and is checked client-side — low-stakes for a
+ *   single child's reading practice, not worth a second round trip.
+ *
+ * Route: POST /api/passage/score
+ *   multipart/form-data: audio (16kHz mono PCM WAV, same encoding as sight-word
+ *   scoring), targetText (the full passage). Reuses assessPronunciation() as-is —
+ *   Azure's pronunciation assessment already handles multi-word ReferenceText and
+ *   returns utterance-level Accuracy/Fluency/Completeness scores directly, so no
+ *   separate passage-scoring path was needed. Passages are kept short (under ~90
+ *   words) to stay within what the short-audio REST endpoint handles well — no
+ *   streaming/continuous-recognition endpoint here.
+ *   Returns { overallAccuracy, fluencyScore, completenessScore, weakWords }, where
+ *   weakWords is the list of recognized words that scored under WORD_SCORE_THRESHOLD
+ *   (word-level, unlike the phoneme-level detail the sight-word drill surfaces —
+ *   passage-scale feedback is about which words to revisit, not individual sounds).
+ *   Updates reading:dustin:passages:{id}{attempts,bestAccuracy} and appends today's
+ *   session log with drillType "passage".
+ *
  * Additional binding expected:
  *   ADMIN_PASSCODE - encrypted secret, shared passcode gating the /api/admin/* routes
  */
@@ -83,6 +106,75 @@ const MAX_FORGIVABLE_WEAK_PHONEMES = 1;
 
 const DEFAULT_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
 const SESSION_WORD_COUNT = 5;
+
+const PASSAGE_SESSION_COUNT = 3;
+
+// Original short passages, 6th/7th-grade level (grade-matched per TutorHub's actual
+// curriculum, not early-elementary content) — none of this is drawn from any
+// copyrighted source. Kept short (well under 100 words) so a full-passage read stays
+// within what Azure's short-audio pronunciation-assessment endpoint handles well.
+const PASSAGES = [
+  {
+    id: "moon-phases",
+    text: "The moon does not make its own light. Instead, it reflects light from the sun. As the moon orbits Earth, we see different amounts of its lit half. This is why the moon seems to change shape every night, from a thin sliver to a full circle and back again.",
+    question: {
+      prompt: "Why does the moon appear to change shape?",
+      options: [
+        "It grows and shrinks each month",
+        "We see different amounts of sunlight reflecting off it",
+        "Clouds cover parts of it",
+        "The moon spins very fast",
+      ],
+      correctIndex: 1,
+    },
+  },
+  {
+    id: "coral-reef",
+    text: "A coral reef looks like a rock garden, but it is actually alive. Tiny animals called coral polyps build hard skeletons that connect together over many years. Thousands of fish, crabs, and other creatures depend on the reef for food and shelter, which is why reefs are sometimes called the rainforests of the sea.",
+    question: {
+      prompt: "Why are coral reefs compared to rainforests?",
+      options: [
+        "They are found in the same locations",
+        "They are made of trees",
+        "They support a huge variety of living things",
+        "They are colored green",
+      ],
+      correctIndex: 2,
+    },
+  },
+  {
+    id: "pyramids",
+    text: "Thousands of years ago, the people of ancient Egypt built massive pyramids as tombs for their pharaohs. Workers hauled enormous stone blocks across the desert without any modern machines. Historians still study how such a huge project was organized and completed with the tools available at the time.",
+    question: {
+      prompt: "What were the pyramids built for?",
+      options: ["Storing grain", "Tombs for pharaohs", "Government buildings", "Marketplaces"],
+      correctIndex: 1,
+    },
+  },
+  {
+    id: "baker-recipe",
+    text: "A baker was testing a new bread recipe. Her first batch used too much salt, so the loaves tasted harsh. She adjusted the ratio of salt to flour and tried again. The second batch turned out perfectly balanced, and she wrote the exact measurements down so she would never lose the recipe.",
+    question: {
+      prompt: "What problem did the baker fix in her second batch?",
+      options: ["The bread didn't rise", "There was too much salt", "The oven was too hot", "She ran out of flour"],
+      correctIndex: 1,
+    },
+  },
+  {
+    id: "voting",
+    text: "In a democracy, citizens choose their leaders by voting. Each vote counts toward deciding who will represent the community's interests. Because decisions affect everyone, many people believe voting is not just a right, but also an important responsibility.",
+    question: {
+      prompt: "According to the passage, why do some people see voting as a responsibility?",
+      options: [
+        "It is required by law in every country",
+        "Decisions affect the whole community",
+        "It only takes a few minutes",
+        "Leaders ask citizens to vote",
+      ],
+      correctIndex: 1,
+    },
+  },
+];
 
 export default {
   async fetch(request, env, ctx) {
@@ -106,6 +198,14 @@ export default {
 
     if (url.pathname === "/api/word-helper/log" && request.method === "POST") {
       return withCors(await handleWordHelperLog(request, env));
+    }
+
+    if (url.pathname === "/api/passage/session" && request.method === "GET") {
+      return withCors(await handlePassageSession(request, env));
+    }
+
+    if (url.pathname === "/api/passage/score" && request.method === "POST") {
+      return withCors(await handlePassageScore(request, env));
     }
 
     if (url.pathname === "/api/tts" && request.method === "GET") {
@@ -193,6 +293,49 @@ async function handleSessionWords(request, env) {
   } catch (err) {
     console.error("Session words error:", err && err.message);
     return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default-error" });
+  }
+}
+
+async function handlePassageSession(request, env) {
+  const selected = shuffle(PASSAGES).slice(0, Math.min(PASSAGE_SESSION_COUNT, PASSAGES.length));
+  return jsonResponse({
+    passages: selected.map((p) => ({ id: p.id, text: p.text, question: p.question })),
+  });
+}
+
+async function handlePassageScore(request, env) {
+  try {
+    const formData = await request.formData();
+    const audio = formData.get("audio");
+    const passageId = (formData.get("passageId") || "").toString().trim();
+    const targetText = (formData.get("targetText") || "").toString().trim();
+
+    if (!audio || !targetText) {
+      return jsonResponse({ error: "Missing audio or targetText" }, 400);
+    }
+
+    const assessment = await assessPronunciation(audio, targetText, env.AZURE_SPEECH_KEY, env.AZURE_SPEECH_REGION);
+
+    const weakWords = assessment.words.filter((w) => w.accuracy < WORD_SCORE_THRESHOLD).map((w) => w.word);
+
+    if (passageId) {
+      await recordPassageAttempt(env.TUTOR_KV, passageId, {
+        overallAccuracy: assessment.wordAccuracy,
+        fluencyScore: assessment.fluencyScore,
+        completenessScore: assessment.completenessScore,
+      });
+    }
+
+    return jsonResponse({
+      overallAccuracy: assessment.wordAccuracy,
+      fluencyScore: assessment.fluencyScore,
+      completenessScore: assessment.completenessScore,
+      weakWords,
+      transcript: assessment.transcript,
+    });
+  } catch (err) {
+    console.error("Passage scoring error:", err && err.message);
+    return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
   }
 }
 
@@ -484,6 +627,25 @@ async function recordWordHelperLookup(kv, word) {
   await appendSessionLog(kv, word, null, null, "word-helper");
 }
 
+async function recordPassageAttempt(kv, passageId, { overallAccuracy, fluencyScore, completenessScore }) {
+  const key = `${KV_PREFIX}passages:${passageId}`;
+  const existingRaw = await kv.get(key);
+  const existing = existingRaw ? JSON.parse(existingRaw) : { attempts: 0, bestAccuracy: 0 };
+
+  existing.attempts += 1;
+  existing.bestAccuracy = Math.max(existing.bestAccuracy, overallAccuracy);
+  existing.lastAccuracy = overallAccuracy;
+  existing.lastFluencyScore = fluencyScore;
+  existing.lastCompletenessScore = completenessScore;
+  existing.lastAttemptAt = new Date().toISOString();
+
+  await kv.put(key, JSON.stringify(existing));
+
+  // Also append to today's session log — passageId doubles as the item identifier,
+  // same as how reading/spelling log an actual word.
+  await appendSessionLog(kv, passageId, overallAccuracy >= WORD_SCORE_THRESHOLD, null, "passage");
+}
+
 async function handleTTS(request, env) {
   try {
     const url = new URL(request.url);
@@ -616,6 +778,7 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
       wordAccuracy: 0,
       phonemes: [],
       syllables: [],
+      words: [],
       recognitionStatus: data.RecognitionStatus || null,
       wordErrorType: null,
       fluencyScore: null,
@@ -681,11 +844,21 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
   // 0 regardless of how well the word was actually said.
   const wordErrorType = best.Words && best.Words[0] ? best.Words[0].ErrorType || null : null;
 
+  // Per-word accuracy (as opposed to the flat per-phoneme list above) — used by
+  // passage scoring to say *which words* need another look, since phoneme-level
+  // detail doesn't make sense to surface across a whole paragraph.
+  const words = (best.Words || []).map((w) => ({
+    word: (w.Word || "").toString(),
+    accuracy: typeof w.AccuracyScore === "number" ? w.AccuracyScore : 0,
+    errorType: w.ErrorType || null,
+  }));
+
   return {
     transcript,
     wordAccuracy,
     phonemes,
     syllables,
+    words,
     recognitionStatus: data.RecognitionStatus,
     wordErrorType,
     fluencyScore: typeof best.FluencyScore === "number" ? best.FluencyScore : null,
