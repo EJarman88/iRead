@@ -193,6 +193,28 @@
     white-space: pre-wrap; text-align: left;
   }
   .debug-line.on { display: block; }
+
+  .briefing-screen {
+    display: none;
+    position: relative; z-index: 1;
+    flex-direction: column; align-items: center; gap: 14px;
+    max-width: 440px; text-align: center;
+    background: var(--panel);
+    border: 2px solid var(--panel-line);
+    border-radius: 26px;
+    padding: 30px 34px;
+    box-shadow: 0 0 40px rgba(56,224,200,0.18), inset 0 0 50px rgba(56,224,200,0.05);
+  }
+  .briefing-screen.show { display: flex; }
+  .briefing-screen h2 { margin: 2px 0 0; font-size: 24px; }
+  .briefing-screen .briefing-gif { max-width: 200px; width: 56vw; border-radius: 14px; }
+  .briefing-screen .briefing-lede { color: var(--text-dim); font-size: 15px; line-height: 1.5; margin: 0; }
+  .briefing-screen .briefing-list {
+    list-style: none; padding: 0; margin: 4px 0 0; text-align: left;
+    display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text);
+  }
+  .briefing-screen .briefing-list li { display: flex; gap: 8px; align-items: flex-start; }
+  .briefing-screen .fire-btn { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -206,7 +228,22 @@
 <audio id="missSound" src="./assets/apex-armada/dino-roar.mp3" preload="none"></audio>
 
 <main>
-  <div id="playArea">
+  <div class="briefing-screen show" id="briefingScreen">
+    <img class="briefing-gif" src="./assets/apex-armada/trex-idle.gif" alt="" onerror="this.style.display='none'">
+    <h2>🦖🚀 Apex Armada</h2>
+    <p class="briefing-lede">
+      A cybernetic dreadnought is closing in. Your mission: load the cipher breech and fire back — by spelling the words correctly.
+    </p>
+    <ul class="briefing-list">
+      <li>🔤 Read (or tap Recon to hear) the word, then type it to fire</li>
+      <li>📡 Some rounds carry a sonar transmission — decode the word hidden inside it</li>
+      <li>🔀 Stuck? Use the help buttons: Re-scramble, First/Last letter, Definition, Sound It Out</li>
+      <li>🎵 Music and sound are optional — toggle them anytime with the button in the corner</li>
+    </ul>
+    <button class="fire-btn" id="beginBtn" type="button">🚀 Begin Mission</button>
+  </div>
+
+  <div id="playArea" style="display:none">
     <div class="command-header">
       <h1>🦖🚀 Apex Armada</h1>
       <p class="subtitle">Load the cipher breech and fire on the dreadnought!</p>
@@ -273,6 +310,8 @@ const debugLine = document.getElementById("debugLine");
 if (DEBUG) debugLine.classList.add("on");
 
 /* ---------- DOM refs ---------- */
+const briefingScreen = document.getElementById("briefingScreen");
+const beginBtn = document.getElementById("beginBtn");
 const playArea = document.getElementById("playArea");
 const endScreen = document.getElementById("endScreen");
 const endSummary = document.getElementById("endSummary");
@@ -606,7 +645,15 @@ async function initSession() {
   buildSalvoMeter();
   showRound();
 }
-initSession();
+
+// Gameplay doesn't start until Dustin taps through the briefing — session
+// words aren't fetched, no music/etc. unlock attempt happens, until then.
+beginBtn.addEventListener("click", () => {
+  unlockAudioPlayback();
+  briefingScreen.classList.remove("show");
+  playArea.style.display = "";
+  initSession();
+});
 
 /* ---------- Round flow ---------- */
 function scrambleWord(word) {
@@ -764,7 +811,7 @@ function handleResult(correct, attempt, targetWord) {
   // escalates the dino's approach.
   registerMiss();
   showReveal(targetWord, attempt);
-  statusLine.textContent = "Here's the cipher, Commander";
+  statusLine.textContent = "Comms officer relays the cipher, Commander";
   setTimeout(nextRound, 3000);
 }
 

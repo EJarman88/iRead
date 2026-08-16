@@ -118,6 +118,11 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   logic was ever shipped. If this gets revisited again, both directions have
   been genuinely tried in conversation — it's a real back-and-forth, not a
   settled design law, so don't be surprised if it comes up a third time.
+- **Briefing screen** (`#briefingScreen`) gates the start of play — session
+  words aren't fetched and `initSession()` doesn't run until Dustin taps
+  "Begin Mission." Explains the objective, both round modes, all four help
+  buttons, and the music toggle up front, since none of that was previously
+  explained in-game anywhere.
 - Typed input only. Speech input was explicitly deferred in the original handoff doc
   pending a fix to the sight-word drill's Azure webm/opus scoring bug — wire it in
   later via the same Azure Pronunciation Assessment path `reading.html` already uses.
