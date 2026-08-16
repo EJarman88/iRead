@@ -6,7 +6,8 @@
  *   TUTOR_KV            - KV namespace (shared with TutorHub)
  *   AZURE_SPEECH_KEY    - encrypted secret, Azure Speech resource key (reused from TutorHub TTS)
  *   AZURE_SPEECH_REGION - plain text var, e.g. "eastus" (must match the TutorHub Azure Speech resource's region)
- *   ANTHROPIC_API_KEY   - encrypted secret, Claude API key (Word Helper's vision calls)
+ *   ANTHROPIC_API_KEY   - encrypted secret, Claude API key (Word Helper's vision calls,
+ *                         and /api/game/dispatch's text generation below)
  *
  * Route: POST /api/sight-word/score
  *   multipart/form-data:
@@ -58,6 +59,30 @@
  *   accumulated reading+spelling accuracy — struggling words come up more, mastered
  *   ones taper off but don't disappear, new words get a fair shot. Falls back to a
  *   small built-in default list if nothing's been loaded yet.
+ *
+ * Route: GET /api/game/session-words?count=N
+ *   Public, no gate. Same pooling + weighting logic as the route above (reuses
+ *   computeWordWeight/weightedSampleWithoutReplacement) — just a different default
+ *   count (6, themed as "rounds" for Apex Armada). Intentionally the same selection
+ *   function as the sight-word/spelling drills, not a separate pool or algorithm.
+ *
+ * Route: POST /api/game/dispatch
+ *   JSON body: { words: string[], targetWord }. Generates a 1-2 sentence "sonar
+ *   briefing" for the Apex Armada game via the Claude API, constrained to only the
+ *   given words, and programmatically validates every token of the response against
+ *   that word set before returning it — regenerating on failure (a few attempts).
+ *   If ANTHROPIC_API_KEY isn't configured, or generation never validates, falls back
+ *   to a deterministic template built directly from the word list (always valid).
+ *   Returns { dispatch, source: "generated" | "template" }.
+ *
+ * Route: POST /api/game/attempt
+ *   JSON body: { sessionId, word, mode, correct, attemptNumber, latencyMs, dispatchText? }.
+ *   Records one Apex Armada round result. Mastery data goes through the same path as
+ *   the spelling drill (recordSpellingAttempt — the game's typed cipher-breech input
+ *   is the same exact-match mechanic as spelling, so it reuses that bucket rather than
+ *   a parallel mastery mechanic), tagged drillType "game" in the daily session log.
+ *   Session-specific data (score, wordsUsed, results, dispatchesShown, duration) is
+ *   kept separately in reading:dustin:game:{sessionId}. Returns { ok, session }.
  *
  * Route: GET /api/admin/wordlist
  *   Requires header X-Admin-Passcode matching the ADMIN_PASSCODE secret binding.
@@ -133,6 +158,11 @@ const DEFAULT_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
 const SESSION_WORD_COUNT = 5;
 
 const PASSAGE_SESSION_COUNT = 3;
+
+const GAME_SESSION_WORD_COUNT = 6;
+const GAME_KV_PREFIX = `${KV_PREFIX}game:`;
+const DISPATCH_MAX_ATTEMPTS = 3;
+const DISPATCH_MODEL = "claude-haiku-4-5-20251001";
 
 // Original short passages, 6th/7th-grade level (grade-matched per TutorHub's actual
 // curriculum, not early-elementary content) — none of this is drawn from any
@@ -322,6 +352,18 @@ export default {
       return withCors(await handleSessionWords(request, env));
     }
 
+    if (url.pathname === "/api/game/session-words" && request.method === "GET") {
+      return withCors(await handleGameSessionWords(request, env));
+    }
+
+    if (url.pathname === "/api/game/dispatch" && request.method === "POST") {
+      return withCors(await handleGameDispatch(request, env));
+    }
+
+    if (url.pathname === "/api/game/attempt" && request.method === "POST") {
+      return withCors(await handleGameAttempt(request, env));
+    }
+
     if (url.pathname === "/api/admin/wordlist" && request.method === "GET") {
       return withCors(await handleAdminListWordlists(request, env));
     }
@@ -402,40 +444,64 @@ function weightedSampleWithoutReplacement(items, weights, count) {
   return selected;
 }
 
+// Pools every reading:dustin:wordlist:* batch the admin has loaded into one deduped
+// list. Shared by both session-words endpoints below — there is exactly one word
+// pool and one weighting function, never a separate one per interface.
+async function getPooledWords(kv) {
+  const listResult = await kv.list({ prefix: `${KV_PREFIX}wordlist:` });
+  if (!listResult.keys.length) return [];
+
+  const seen = new Set();
+  const allWords = [];
+  for (const k of listResult.keys) {
+    const raw = await kv.get(k.name);
+    if (!raw) continue;
+    const parsed = JSON.parse(raw);
+    (parsed.words || []).forEach((w) => {
+      if (!seen.has(w)) {
+        seen.add(w);
+        allWords.push(w);
+      }
+    });
+  }
+  return allWords;
+}
+
+async function selectAdaptiveWords(kv, allWords, count) {
+  const records = await Promise.all(allWords.map((w) => kv.get(`${KV_PREFIX}words:${w}`)));
+  const weights = records.map((raw) => computeWordWeight(raw ? JSON.parse(raw) : null));
+  return weightedSampleWithoutReplacement(allWords, weights, Math.min(count, allWords.length));
+}
+
 async function handleSessionWords(request, env) {
   try {
-    const listResult = await env.TUTOR_KV.list({ prefix: `${KV_PREFIX}wordlist:` });
-
-    if (!listResult.keys.length) {
-      return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default" });
-    }
-
-    const seen = new Set();
-    const allWords = [];
-    for (const k of listResult.keys) {
-      const raw = await env.TUTOR_KV.get(k.name);
-      if (!raw) continue;
-      const parsed = JSON.parse(raw);
-      (parsed.words || []).forEach((w) => {
-        if (!seen.has(w)) {
-          seen.add(w);
-          allWords.push(w);
-        }
-      });
-    }
-
+    const allWords = await getPooledWords(env.TUTOR_KV);
     if (!allWords.length) {
       return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default" });
     }
-
-    const records = await Promise.all(allWords.map((w) => env.TUTOR_KV.get(`${KV_PREFIX}words:${w}`)));
-    const weights = records.map((raw) => computeWordWeight(raw ? JSON.parse(raw) : null));
-    const selected = weightedSampleWithoutReplacement(allWords, weights, Math.min(SESSION_WORD_COUNT, allWords.length));
-
+    const selected = await selectAdaptiveWords(env.TUTOR_KV, allWords, SESSION_WORD_COUNT);
     return jsonResponse({ words: selected, source: "wordlist" });
   } catch (err) {
     console.error("Session words error:", err && err.message);
     return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default-error" });
+  }
+}
+
+async function handleGameSessionWords(request, env) {
+  try {
+    const url = new URL(request.url);
+    const countParam = parseInt(url.searchParams.get("count"), 10);
+    const count = Number.isFinite(countParam) && countParam > 0 ? countParam : GAME_SESSION_WORD_COUNT;
+
+    const allWords = await getPooledWords(env.TUTOR_KV);
+    if (!allWords.length) {
+      return jsonResponse({ words: DEFAULT_SESSION_WORDS.slice(0, count), source: "default" });
+    }
+    const selected = await selectAdaptiveWords(env.TUTOR_KV, allWords, count);
+    return jsonResponse({ words: selected, source: "wordlist" });
+  } catch (err) {
+    console.error("Game session words error:", err && err.message);
+    return jsonResponse({ words: DEFAULT_SESSION_WORDS.slice(0, GAME_SESSION_WORD_COUNT), source: "default-error" });
   }
 }
 
@@ -591,6 +657,172 @@ async function handleAdminAddWordlist(request, env) {
     console.error("Admin add wordlist error:", err && err.message);
     return jsonResponse({ error: "Failed to save word list", detail: err && err.message }, 500);
   }
+}
+
+async function handleGameDispatch(request, env) {
+  try {
+    const body = await request.json();
+    const words = Array.isArray(body.words)
+      ? body.words.map((w) => (w || "").toString().trim().toLowerCase()).filter(Boolean)
+      : [];
+    const targetWord = (body.targetWord || "").toString().trim().toLowerCase();
+
+    if (!words.length || !targetWord) {
+      return jsonResponse({ error: "Missing words or targetWord" }, 400);
+    }
+
+    const allowedSet = new Set(words);
+    allowedSet.add(targetWord);
+
+    const apiKey = (env.ANTHROPIC_API_KEY || "").trim();
+    if (apiKey) {
+      for (let attempt = 0; attempt < DISPATCH_MAX_ATTEMPTS; attempt++) {
+        try {
+          const dispatch = await generateDispatch(apiKey, [...allowedSet], targetWord);
+          if (dispatch && isDispatchValid(dispatch, allowedSet)) {
+            return jsonResponse({ dispatch, source: "generated" });
+          }
+        } catch (err) {
+          console.error("Dispatch generation attempt failed:", err && err.message);
+        }
+      }
+    }
+
+    // No key configured, or every generation attempt failed validation — fall back
+    // to a sentence built directly from the allowed word set, so it's trivially
+    // valid and a dispatch is always returned (no human review exists before Dustin
+    // sees this, so we never skip the validation gate).
+    return jsonResponse({ dispatch: buildTemplateDispatch(targetWord, allowedSet), source: "template" });
+  } catch (err) {
+    console.error("Game dispatch error:", err && err.message);
+    return jsonResponse({ error: "Failed to build dispatch", detail: err && err.message }, 500);
+  }
+}
+
+async function generateDispatch(apiKey, allowedWords, targetWord) {
+  const prompt =
+    `You are writing a one-sentence sonar/recon briefing for a kids' naval-vs-dinosaur reading game.\n` +
+    `Write exactly ONE short sentence (max 10 words) using ONLY words from this list, plus a trailing ` +
+    `period: ${allowedWords.join(", ")}.\n` +
+    `The sentence MUST include the word "${targetWord}".\n` +
+    `Do not use any word that is not in the list, no names, no other punctuation. Reply with just the sentence.`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: DISPATCH_MODEL,
+      max_tokens: 60,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Anthropic API error: ${res.status} ${errText}`);
+  }
+
+  const data = await res.json();
+  const block = Array.isArray(data.content) ? data.content.find((c) => c.type === "text") : null;
+  return block && block.text ? block.text.trim() : "";
+}
+
+// Tokenizes on whitespace after stripping punctuation and checks every token is a
+// member of the allowed word set — the non-negotiable "never skip this check" rule
+// from the project doc, since no human reviews dispatches before Dustin sees them.
+function isDispatchValid(dispatch, allowedSet) {
+  const tokens = dispatch
+    .toLowerCase()
+    .replace(/[^a-z'\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!tokens.length) return false;
+  return tokens.every((t) => allowedSet.has(t));
+}
+
+function buildTemplateDispatch(targetWord, allowedSet) {
+  const cap = targetWord.charAt(0).toUpperCase() + targetWord.slice(1);
+  if (allowedSet.has("is") && allowedSet.has("here")) {
+    return `${cap} is here.`;
+  }
+  if (allowedSet.has("the")) {
+    return `The ${targetWord}.`;
+  }
+  return `${cap}.`;
+}
+
+async function handleGameAttempt(request, env) {
+  try {
+    const body = await request.json();
+    const sessionId = (body.sessionId || "").toString().trim();
+    const word = (body.word || "").toString().trim().toLowerCase();
+    const mode = (body.mode || "scramble").toString().trim().toLowerCase();
+    const correct = !!body.correct;
+    const attemptNumber = Number.isFinite(body.attemptNumber) ? body.attemptNumber : 1;
+    const latencyMs = typeof body.latencyMs === "number" && !Number.isNaN(body.latencyMs) ? body.latencyMs : null;
+    const dispatchText = body.dispatchText ? body.dispatchText.toString() : null;
+
+    if (!sessionId || !word) {
+      return jsonResponse({ error: "Missing sessionId or word" }, 400);
+    }
+
+    // Mastery write: the game's typed cipher-breech input is exact-match scoring —
+    // the same mechanic as the spelling drill, not a new one — so it reuses that
+    // bucket/function rather than a parallel mastery mechanic. Tagged "game" in the
+    // daily session log to stay distinguishable from the plain spelling drill.
+    await recordSpellingAttempt(env.TUTOR_KV, word, correct, "game");
+
+    const session = await recordGameAttempt(env.TUTOR_KV, sessionId, {
+      word,
+      mode,
+      correct,
+      attemptNumber,
+      latencyMs,
+      dispatchText,
+    });
+
+    return jsonResponse({ ok: true, session });
+  } catch (err) {
+    console.error("Game attempt error:", err && err.message);
+    return jsonResponse({ error: "Failed to record attempt", detail: err && err.message }, 500);
+  }
+}
+
+// Session-specific data, kept separate from word mastery per the project doc's
+// explicit split: mastery -> words:{word}, session/game data -> game:{sessionId}.
+async function recordGameAttempt(kv, sessionId, { word, mode, correct, attemptNumber, latencyMs, dispatchText }) {
+  const key = `${GAME_KV_PREFIX}${sessionId}`;
+  const existingRaw = await kv.get(key);
+  const now = Date.now();
+  const session = existingRaw
+    ? JSON.parse(existingRaw)
+    : {
+        date: new Date().toISOString().slice(0, 10),
+        wordsUsed: [],
+        results: [],
+        dispatchesShown: [],
+        duration: 0,
+        score: 0,
+        startedAt: now, // internal timing anchor only — never surfaced to Dustin
+      };
+
+  if (!session.wordsUsed.includes(word)) session.wordsUsed.push(word);
+  session.results.push({ word, correct, mode, attempts: attemptNumber, latencyMs });
+  if (dispatchText && !session.dispatchesShown.includes(dispatchText)) {
+    session.dispatchesShown.push(dispatchText);
+  }
+  // score is a cosmetic in-game number (salvos on target), not a mastery metric.
+  session.score = session.results.filter((r) => r.correct).length;
+  session.duration = Math.round((now - (session.startedAt || now)) / 1000);
+
+  await kv.put(key, JSON.stringify(session));
+
+  const { startedAt, ...publicSession } = session;
+  return publicSession;
 }
 
 async function handleScore(request, env) {
@@ -1151,7 +1383,10 @@ async function recordAttempt(kv, word, { correct, latencyMs, transcript, wordAcc
   await appendSessionLog(kv, word, correct, latencyMs, "sight-word");
 }
 
-async function recordSpellingAttempt(kv, word, correct) {
+// drillType tags the daily session log entry — "spelling" for the plain spelling
+// drill, "game" for Apex Armada's cipher-breech input, which uses this exact same
+// exact-match mastery mechanic rather than a parallel one.
+async function recordSpellingAttempt(kv, word, correct, drillType = "spelling") {
   const key = `${KV_PREFIX}words:${word}`;
   const existingRaw = await kv.get(key);
   const existing = existingRaw
@@ -1169,7 +1404,7 @@ async function recordSpellingAttempt(kv, word, correct) {
   await kv.put(key, JSON.stringify(existing));
 
   // Also append to today's session log
-  await appendSessionLog(kv, word, correct, null, "spelling");
+  await appendSessionLog(kv, word, correct, null, drillType);
 }
 
 async function appendSessionLog(kv, word, correct, latencyMs, drillType) {

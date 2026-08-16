@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORDLISTS_DIR = path.join(__dirname, "..", "content", "wordlists");
-const DEFAULT_WORKER_ORIGIN = "https://reader-app-worker.erica-jarman.workers.dev";
+const DEFAULT_WORKER_ORIGIN = "https://iread-apex.erica-jarman.workers.dev";
 
 function parseArgs(argv) {
   const args = { passcode: process.env.ADMIN_PASSCODE || "", workerOrigin: DEFAULT_WORKER_ORIGIN };

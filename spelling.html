@@ -41,7 +41,8 @@
     border: 1px solid var(--nebula-soft);
   }
   .nav-link.home { left: 16px; }
-  .nav-link.other { right: 16px; }
+  .nav-link.other { right: 16px; top: 16px; }
+  .nav-link.game { right: 16px; top: 54px; }
   .nav-link:hover { color: var(--text); border-color: var(--nebula); }
 
   main {
@@ -185,6 +186,7 @@
 <div id="stars"></div>
 <a class="nav-link home" href="./index.html">🏠 Home</a>
 <a class="nav-link other" href="./reading.html">🔊 Reading drill</a>
+<a class="nav-link game" href="./apex-armada.html">🦖⚓ Apex Armada</a>
 <main>
   <div class="mascot">🚀</div>
   <div class="prompt-panel" id="promptPanel">
@@ -207,9 +209,9 @@
 
 <script>
 /* ---------- Config ---------- */
-const SPELLING_SCORE_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/spelling/score";
-const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
-const SESSION_WORDS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/session-words";
+const SPELLING_SCORE_ENDPOINT = "https://iread-apex.erica-jarman.workers.dev/api/spelling/score";
+const TTS_ENDPOINT = "https://iread-apex.erica-jarman.workers.dev/api/tts";
+const SESSION_WORDS_ENDPOINT = "https://iread-apex.erica-jarman.workers.dev/api/sight-word/session-words";
 // Shared pool with the reading drill — same word lists, same fallback.
 const FALLBACK_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
 let SESSION_WORDS = [];
