@@ -44,6 +44,14 @@
   .nav-link.spelling { right: 16px; top: 54px; }
   .nav-link:hover { color: var(--text); border-color: var(--sonar); }
 
+  .music-toggle {
+    position: fixed; top: 92px; right: 16px; z-index: 3;
+    color: var(--text-dim); background: rgba(4,24,36,0.6);
+    border: 1px solid var(--sonar-soft); border-radius: 10px;
+    font-size: 16px; padding: 6px 10px; cursor: pointer; font-family: inherit;
+  }
+  .music-toggle:hover { color: var(--text); border-color: var(--sonar); }
+
   main {
     position: relative; z-index: 1;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -140,6 +148,17 @@
 
   .status-line { margin-top: 18px; font-size: 17px; color: var(--text-dim); min-height: 26px; }
 
+  .help-row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .help-btn {
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--panel-line); border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  .help-btn:hover:not(:disabled) { color: var(--text); border-color: var(--sonar); }
+  .help-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .hint-line { margin-top: 10px; font-size: 14px; color: var(--sonar); min-height: 20px; }
+
   .reveal-word {
     display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
     margin-top: 14px; font-size: 36px; font-weight: 700;
@@ -180,6 +199,10 @@
 <a class="nav-link home" href="./index.html">🏠 Home</a>
 <a class="nav-link reading" href="./reading.html">🔊 Reading drill</a>
 <a class="nav-link spelling" href="./spelling.html">✏️ Spelling drill</a>
+<button class="music-toggle" id="musicToggle" type="button" aria-label="Toggle music">🎵</button>
+<audio id="bgMusic" src="./assets/apex-armada/battle-music.mp3" loop preload="none"></audio>
+<audio id="hitSound" src="./assets/apex-armada/hit-roar.mp3" preload="none"></audio>
+<audio id="missSound" src="./assets/apex-armada/dino-roar.mp3" preload="none"></audio>
 
 <main>
   <div id="playArea">
@@ -203,6 +226,13 @@
         <button class="fire-btn" id="fireBtn" disabled>🔥 Fire</button>
       </div>
       <div class="status-line" id="statusLine">Getting your orders...</div>
+      <div class="help-row" id="helpRow">
+        <button class="help-btn" id="rescrambleBtn" type="button">🔀 Re-scramble</button>
+        <button class="help-btn" id="lettersBtn" type="button">🔤 First/Last</button>
+        <button class="help-btn" id="defineBtn" type="button">📖 Definition</button>
+        <button class="help-btn" id="soundBtn" type="button">🧩 Sound It Out</button>
+      </div>
+      <div class="hint-line" id="hintLine"></div>
       <div class="reveal-word" id="revealWord"></div>
     </div>
 
@@ -223,6 +253,7 @@ const WORKER_BASE = "https://iread-apex.erica-jarman.workers.dev";
 const GAME_SESSION_WORDS_ENDPOINT = `${WORKER_BASE}/api/game/session-words?count=6`;
 const GAME_DISPATCH_ENDPOINT = `${WORKER_BASE}/api/game/dispatch`;
 const GAME_ATTEMPT_ENDPOINT = `${WORKER_BASE}/api/game/attempt`;
+const GAME_WORD_HINT_ENDPOINT = `${WORKER_BASE}/api/game/word-hint`;
 const TTS_ENDPOINT = `${WORKER_BASE}/api/tts`;
 const FALLBACK_SESSION_WORDS = ["the", "said", "was", "come", "friend", "here"];
 
@@ -233,6 +264,7 @@ let roundAttemptCount = 0;
 let roundStartedAt = 0;
 let currentMode = "scramble";
 let currentDispatchText = null;
+let wordHintCache = null; // { word, definition, syllables } — cleared each round
 
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
 const debugLine = document.getElementById("debugLine");
@@ -252,20 +284,73 @@ const listenBtn = document.getElementById("listenBtn");
 const statusLine = document.getElementById("statusLine");
 const revealWord = document.getElementById("revealWord");
 const salvoMeter = document.getElementById("salvoMeter");
+const helpRow = document.getElementById("helpRow");
+const rescrambleBtn = document.getElementById("rescrambleBtn");
+const lettersBtn = document.getElementById("lettersBtn");
+const defineBtn = document.getElementById("defineBtn");
+const soundBtn = document.getElementById("soundBtn");
+const hintLine = document.getElementById("hintLine");
+const musicToggle = document.getElementById("musicToggle");
+const bgMusic = document.getElementById("bgMusic");
+const hitSound = document.getElementById("hitSound");
+const missSound = document.getElementById("missSound");
 
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/* ---------- Audio (optional hint, reuses the shared TTS endpoint) ---------- */
+/* ---------- Audio (TTS hint, music, and sound cues) ---------- */
 const ttsPlayer = new Audio();
 let audioUnlocked = false;
+
+const MUSIC_PREF_KEY = "apexArmadaMusicOn";
+let musicOn = localStorage.getItem(MUSIC_PREF_KEY) !== "off"; // defaults on
+bgMusic.volume = 0.4;
+function updateMusicToggleLabel() {
+  musicToggle.textContent = musicOn ? "🎵" : "🔇";
+}
+updateMusicToggleLabel();
+function tryPlayMusic() {
+  if (!musicOn) return;
+  bgMusic.play().catch(() => {}); // fine if the file isn't uploaded yet, or autoplay is still locked
+}
+musicToggle.addEventListener("click", () => {
+  musicOn = !musicOn;
+  localStorage.setItem(MUSIC_PREF_KEY, musicOn ? "on" : "off");
+  updateMusicToggleLabel();
+  if (musicOn) tryPlayMusic();
+  else bgMusic.pause();
+});
+
 function unlockAudioPlayback() {
   if (audioUnlocked) return;
   audioUnlocked = true;
   ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
   ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+  tryPlayMusic();
 }
+// The game doesn't gate play behind a "listen first" tap the way the spelling
+// drill does (the scrambled letters are a visual puzzle, not blind dictation),
+// so unlock on whatever the very first tap anywhere turns out to be.
+document.addEventListener("pointerdown", unlockAudioPlayback, { once: true });
+
+function playHitSound() {
+  try {
+    hitSound.currentTime = 0;
+    hitSound.play().catch(() => {});
+  } catch (err) {
+    // Missing/broken file — the fire animation still lands without it.
+  }
+}
+function playMissSound() {
+  try {
+    missSound.currentTime = 0;
+    missSound.play().catch(() => {});
+  } catch (err) {
+    // Same — the screen-flash still lands without it.
+  }
+}
+
 async function playWord(word) {
   try {
     const res = await fetch(`${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=normal`);
@@ -285,7 +370,28 @@ listenBtn.addEventListener("click", () => {
 /* ---------- Ambient canvas scene ---------- */
 const canvas = document.getElementById("scene");
 const ctx = canvas.getContext("2d");
-let fx = null; // { type: 'fire' | 'miss', startedAt }
+let fx = null; // { type: 'fire' | 'miss' | 'regroup', startedAt }
+
+// Animated GIFs advance their own frames as long as something keeps drawing
+// them, so re-drawing this same <img> every rAF tick animates it on canvas —
+// falls back to the 🦖 emoji if the file hasn't been uploaded yet (or 404s).
+const trexImg = new Image();
+let trexImgReady = false;
+trexImg.onload = () => {
+  trexImgReady = true;
+};
+trexImg.onerror = () => {
+  trexImgReady = false;
+};
+trexImg.src = "./assets/apex-armada/trex.gif";
+
+// The T-Rex creeps toward the ship as Dustin misses words outright (not on a
+// forgiven first fumble — see registerMiss()). dinoProximity eases toward
+// dinoThreatLevel/DINO_THREAT_MAX each frame for a smooth glide instead of a
+// snap. Hitting the max doesn't restart the session — see registerMiss().
+const DINO_THREAT_MAX = 3;
+let dinoThreatLevel = 0;
+let dinoProximity = 0;
 
 function resizeCanvas() {
   canvas.width = window.innerWidth;
@@ -325,14 +431,24 @@ function drawScene(t) {
     ctx.stroke();
   }
 
-  // Dino silhouette (cybernetic dreadnought), pulsing glow, upper-right
-  const dinoX = w * 0.78, dinoY = h * 0.28 + Math.sin(t / 900) * 8;
+  // Dino silhouette (cybernetic dreadnought), pulsing glow, easing closer to
+  // the ship as dinoProximity rises with each genuine miss.
+  dinoProximity += ((dinoThreatLevel / DINO_THREAT_MAX) - dinoProximity) * 0.06;
+  const dinoHomeX = w * 0.78, dinoHomeY = h * 0.28;
+  const dinoCloseX = w * 0.5, dinoCloseY = h * 0.42;
+  const dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
+  const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 8;
+  const dinoSize = Math.min(w, h) * 0.14 * (1 + dinoProximity * 0.5);
   ctx.save();
   ctx.shadowColor = "rgba(255,122,92,0.6)";
   ctx.shadowBlur = 24 + Math.sin(t / 500) * 8;
-  ctx.font = `${Math.min(w, h) * 0.14}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillText("🦖", dinoX, dinoY);
+  if (trexImgReady) {
+    ctx.drawImage(trexImg, dinoX - dinoSize / 2, dinoY - dinoSize / 2, dinoSize, dinoSize);
+  } else {
+    ctx.font = `${dinoSize}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText("🦖", dinoX, dinoY);
+  }
   ctx.restore();
 
   // Ship, bobbing lower-left
@@ -348,7 +464,10 @@ function drawScene(t) {
   // FX overlay
   if (fx) {
     const elapsed = t - fx.startedAt;
-    if (fx.type === "fire" && elapsed < 700) {
+    const FX_DURATIONS = { fire: 700, miss: 350, regroup: 900 };
+    const duration = FX_DURATIONS[fx.type] || 0;
+
+    if (fx.type === "fire" && elapsed < duration) {
       const progress = Math.min(elapsed / 550, 1);
       const cx = shipX + (dinoX - shipX) * progress;
       const cy = shipY + (dinoY - shipY) * progress - Math.sin(progress * Math.PI) * 60;
@@ -368,17 +487,21 @@ function drawScene(t) {
         ctx.fill();
         ctx.restore();
       }
-    } else if (elapsed >= 700) {
-      fx = null;
-    }
-    if (fx && fx.type === "miss" && elapsed < 350) {
+    } else if (fx.type === "miss" && elapsed < duration) {
       ctx.save();
-      ctx.fillStyle = `rgba(255,154,138,${0.15 * (1 - elapsed / 350)})`;
+      ctx.fillStyle = `rgba(255,154,138,${0.15 * (1 - elapsed / duration)})`;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
-    } else if (fx && fx.type === "miss" && elapsed >= 350) {
-      fx = null;
+    } else if (fx.type === "regroup" && elapsed < duration) {
+      // Bigger, redder flash than a plain miss — the "close call" beat right
+      // before the dino's advance resets, without actually restarting anything.
+      ctx.save();
+      ctx.fillStyle = `rgba(255,90,60,${0.35 * (1 - elapsed / duration)})`;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
     }
+
+    if (elapsed >= duration) fx = null;
   }
 
   requestAnimationFrame(drawScene);
@@ -387,6 +510,24 @@ requestAnimationFrame(drawScene);
 
 function triggerFireFx() { fx = { type: "fire", startedAt: performance.now() }; }
 function triggerMissFx() { fx = { type: "miss", startedAt: performance.now() }; }
+function triggerRegroupFx() { fx = { type: "regroup", startedAt: performance.now() }; }
+
+// Called once per round that ends in a genuine miss (reveal), not on a
+// forgiven first fumble — a "missed word", matching what Dustin asked for.
+// At the threat max, the dino's advance resets rather than the session
+// restarting: same escalating tension, no lost progress.
+function registerMiss() {
+  dinoThreatLevel++;
+  playMissSound();
+  if (dinoThreatLevel >= DINO_THREAT_MAX) {
+    triggerRegroupFx();
+    setTimeout(() => {
+      dinoThreatLevel = 0;
+    }, 900);
+  } else {
+    triggerMissFx();
+  }
+}
 
 /* ---------- Session setup ---------- */
 function buildSalvoMeter() {
@@ -442,13 +583,23 @@ function renderCartridges(word) {
   });
 }
 
+function setControlsEnabled(enabled) {
+  breechInput.disabled = !enabled;
+  fireBtn.disabled = !enabled;
+  rescrambleBtn.disabled = !enabled;
+  lettersBtn.disabled = !enabled;
+  defineBtn.disabled = !enabled;
+  soundBtn.disabled = !enabled;
+}
+
 async function showRound() {
   puzzlePanel.classList.remove("correct", "incorrect");
   revealWord.innerHTML = "";
   breechInput.value = "";
-  breechInput.disabled = true;
-  fireBtn.disabled = true;
+  setControlsEnabled(false);
   dispatchPanel.classList.remove("show");
+  hintLine.textContent = "";
+  wordHintCache = null;
   roundAttemptCount = 0;
   currentDispatchText = null;
 
@@ -482,8 +633,7 @@ async function showRound() {
   }
 
   statusLine.textContent = "Type the word to load the breech";
-  breechInput.disabled = false;
-  fireBtn.disabled = false;
+  setControlsEnabled(true);
   roundStartedAt = performance.now();
   breechInput.focus();
 }
@@ -499,8 +649,7 @@ async function submitAttempt() {
   const targetWord = SESSION_WORDS[roundIndex];
   roundAttemptCount++;
 
-  breechInput.disabled = true;
-  fireBtn.disabled = true;
+  setControlsEnabled(false);
   statusLine.textContent = "Firing...";
 
   const correct = attempt === targetWord;
@@ -539,27 +688,30 @@ function handleResult(correct, attempt, targetWord) {
     puzzlePanel.classList.add("correct");
     statusLine.textContent = "Direct hit! 💥";
     triggerFireFx();
+    playHitSound();
     lightSalvo(roundIndex);
     setTimeout(nextRound, 1400);
     return;
   }
 
   puzzlePanel.classList.add("incorrect");
-  triggerMissFx();
 
   if (roundAttemptCount === 1) {
+    triggerMissFx();
     statusLine.textContent = "Off target — reload and try again";
     setTimeout(() => {
       puzzlePanel.classList.remove("incorrect");
       breechInput.value = "";
-      breechInput.disabled = false;
-      fireBtn.disabled = false;
+      setControlsEnabled(true);
       breechInput.focus();
       renderCartridges(targetWord);
     }, 1300);
     return;
   }
 
+  // A genuinely missed word (not just a forgiven first fumble) — this is what
+  // escalates the dino's approach.
+  registerMiss();
   showReveal(targetWord, attempt);
   statusLine.textContent = "Here's the cipher, Commander";
   setTimeout(nextRound, 3000);
@@ -574,6 +726,60 @@ function showReveal(targetWord, attempt) {
     })
     .join("");
 }
+
+/* ---------- Help buttons ---------- */
+// Free, instant, no attempt penalty — re-shuffles the same visual hint that's
+// already on screen, doesn't touch scoring.
+rescrambleBtn.addEventListener("click", () => {
+  renderCartridges(SESSION_WORDS[roundIndex]);
+});
+
+// Also free/instant — the target word is already known client-side, so this
+// is just a display of two of its letters, not a network round trip.
+lettersBtn.addEventListener("click", () => {
+  const word = SESSION_WORDS[roundIndex];
+  hintLine.textContent = `Starts with "${word[0].toUpperCase()}", ends with "${word[word.length - 1].toUpperCase()}"`;
+});
+
+// Definition and Sound It Out both need the same Claude-generated data, so
+// they share one cached fetch per round instead of two separate calls.
+async function fetchWordHint() {
+  const word = SESSION_WORDS[roundIndex];
+  if (wordHintCache && wordHintCache.word === word) return wordHintCache;
+  const res = await fetch(GAME_WORD_HINT_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ word }),
+  });
+  const data = await res.json();
+  wordHintCache = { word, definition: data.definition, syllables: data.syllables };
+  return wordHintCache;
+}
+
+defineBtn.addEventListener("click", async () => {
+  defineBtn.disabled = true;
+  hintLine.textContent = "Thinking...";
+  try {
+    const hint = await fetchWordHint();
+    hintLine.textContent = hint.definition || "No definition available right now.";
+  } catch (err) {
+    hintLine.textContent = "Hint unavailable right now.";
+  }
+  defineBtn.disabled = false;
+});
+
+soundBtn.addEventListener("click", async () => {
+  soundBtn.disabled = true;
+  hintLine.textContent = "Thinking...";
+  try {
+    const hint = await fetchWordHint();
+    hintLine.textContent =
+      hint.syllables && hint.syllables.length ? hint.syllables.join("-") : "No breakdown available right now.";
+  } catch (err) {
+    hintLine.textContent = "Hint unavailable right now.";
+  }
+  soundBtn.disabled = false;
+});
 
 function nextRound() {
   roundIndex++;
