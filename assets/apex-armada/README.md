@@ -13,12 +13,18 @@ on next page load, no code changes needed.
 | `dino-roar.mp3` | Plays on each miss, as the T-Rex creeps closer | |
 | `cockpit-bg.jpg` | Full-bleed background, drawn cover-fit on the canvas every frame | Real generated art (Erica/Gemini), landscape (~1365×768 source). Falls back to a hand-drawn starfield/gradient if missing. |
 | `trex-hero.png` | Static "idle" dino sprite, drawn over the cockpit-bg window area | Transparent PNG cutout, not animated — replaced the old `trex-idle.gif` for this role since it's higher quality. Falls back to the 🦖 emoji if missing. |
-| `trex-hit.gif` | Swaps in for ~2.2s during the "Direct hit!" celebration | |
-| `trex-defeated.gif` | Shown on the end-of-session screen (plain `<img>`, not canvas) | |
-| `trex-miss-final.gif` | Swaps in for ~2.8s at the 3rd-miss "regroup" beat | The dino briefly looms large/dominant, then falls back — no session restart, no lost progress, matching the app's no-loss-state rule. |
+| `trex-hit.gif` | Full-screen cutscene for ~2.2s on a correct answer | |
+| `trex-defeated.gif` | Full-screen cutscene once at the end of a session, before the summary screen reveals | |
+| `trex-miss-final.gif` | Full-screen cutscene for ~2.8s at the 3rd-miss "regroup" beat | The dino briefly looms large/dominant, then falls back — no session restart, no lost progress, matching the app's no-loss-state rule. |
 | `trex-idle.gif` | **No longer referenced** by `apex-armada.html` | Left in the repo unused rather than deleted, in case it's wanted again — `trex-hero.png` replaced its role. |
 
 The `trex-hit.gif`/`trex-defeated.gif`/`trex-miss-final.gif` clips are cropped/recompressed frames from source videos Erica generated — placeholder quality, not final art. `cockpit-bg.jpg` and `trex-hero.png` are real generated art and are being treated as the actual assets, not placeholders, though still swappable any time by dropping in a new file with the same name — the layout is built around this specific background's proportions (open "window" area up top, console area at the bottom), so a replacement background should keep roughly the same composition for the dino/UI positioning to still line up.
+
+The three event clips play as **full-screen cutscenes** (`#cutsceneOverlay`,
+`object-fit: cover`, above the whole game UI) rather than swapping the small
+in-scene dino sprite — so any replacement for these three specifically should
+be composed to work cropped edge-to-edge at whatever aspect ratio the
+player's screen happens to be, not framed like a small sprite.
 
 Keep file sizes modest — these load over the same connection as everything
 else on a phone, no lazy-loading/CDN here. (`cockpit-bg.jpg` was converted

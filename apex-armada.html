@@ -199,7 +199,6 @@
   }
   .end-screen.show { display: flex; }
   .end-screen h2 { margin: 0; font-size: 20px; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
-  .end-screen .end-gif { max-height: 32vh; max-width: 60vw; border-radius: 14px; }
   .end-screen .subtitle { text-shadow: 0 1px 5px rgba(0,0,0,0.85); }
   .end-screen .home-btn {
     background: var(--sonar); color: #04211d; text-decoration: none;
@@ -212,6 +211,20 @@
     white-space: pre-wrap; text-align: left;
   }
   .debug-line.on { display: block; }
+
+  /* Full-screen takeover for the event-triggered dino clips (hit, regroup,
+     defeated) — covers everything, including the game UI, for the clip's
+     duration, then disappears to reveal gameplay again underneath. */
+  .cutscene-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 6;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    background: #000;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .cutscene-overlay.show { display: block; opacity: 1; }
 
   .briefing-screen {
     display: none;
@@ -312,12 +325,12 @@
   </div>
 
   <div class="end-screen" id="endScreen">
-    <img class="end-gif" src="./assets/apex-armada/trex-defeated.gif" alt="" onerror="this.style.display='none'">
     <h2>🎉 Dreadnought neutralized!</h2>
     <p class="subtitle" id="endSummary"></p>
     <a class="home-btn" href="./index.html">Return to base</a>
   </div>
 </main>
+<img class="cutscene-overlay" id="cutsceneOverlay" alt="">
 <div class="debug-line" id="debugLine"></div>
 
 <script>
@@ -577,11 +590,31 @@ function loadImage(path) {
   return state;
 }
 const cockpitBg = loadImage("./assets/apex-armada/cockpit-bg.jpg");
-const trexHero = loadImage("./assets/apex-armada/trex-hero.png"); // static "idle" sprite
+const trexHero = loadImage("./assets/apex-armada/trex-hero.png"); // static "idle" sprite, always what's drawn in-scene
 const trexHit = loadImage("./assets/apex-armada/trex-hit.gif");
 const trexMissFinal = loadImage("./assets/apex-armada/trex-miss-final.gif");
-let dinoShowHitUntil = 0; // while t < this, draw trexHit instead of the idle sprite
-let dinoShowMissFinalUntil = 0; // while t < this, draw trexMissFinal (the 3rd-miss regroup beat)
+const trexDefeated = loadImage("./assets/apex-armada/trex-defeated.gif");
+
+const cutsceneOverlay = document.getElementById("cutsceneOverlay");
+let cutsceneTimer = null;
+
+// Takes over the whole screen with the given clip for durationMs, covering
+// the game underneath, then disappears on its own. Resolves once it's done
+// (or immediately, if the asset isn't ready) — used to gate the end screen
+// behind the "defeated" clip finishing. Non-blocking for the hit/regroup
+// callers, who don't need to wait on it.
+function playCutscene(imgState, durationMs) {
+  if (!imgState.ready) return Promise.resolve();
+  clearTimeout(cutsceneTimer);
+  cutsceneOverlay.src = imgState.img.src;
+  cutsceneOverlay.classList.add("show");
+  return new Promise((resolve) => {
+    cutsceneTimer = setTimeout(() => {
+      cutsceneOverlay.classList.remove("show");
+      resolve();
+    }, durationMs);
+  });
+}
 
 // The T-Rex creeps toward the cockpit as Dustin misses words outright (not on
 // a forgiven first fumble — see registerMiss()). dinoProximity eases toward
@@ -676,27 +709,24 @@ function drawScene(t) {
     drawFallbackBackground(t, w, h);
   }
 
-  // Dino, pulsing glow, easing closer to the cockpit as dinoProximity rises
-  // with each genuine miss. Swaps to the "hit" clip for a couple seconds
-  // after a correct answer (see triggerFireFx()), or the "miss-final" clip
-  // at the 3rd-miss regroup beat (see registerMiss()).
+  // Ambient dino, pulsing glow, easing closer to the cockpit as dinoProximity
+  // rises with each genuine miss. Always the idle sprite in-scene now — the
+  // hit/regroup/defeated moments take over the whole screen instead of
+  // swapping the in-scene sprite (see playCutscene()).
   dinoProximity += ((dinoThreatLevel / DINO_THREAT_MAX) - dinoProximity) * 0.06;
   const dinoHomeX = w * 0.63, dinoHomeY = h * 0.32;
   const dinoCloseX = w * 0.5, dinoCloseY = h * 0.44;
   const dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
   const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 6;
   const dinoSize = h * 0.4 * (1 + dinoProximity * 0.4);
-  const useMissFinal = t < dinoShowMissFinalUntil && trexMissFinal.ready;
-  const useHit = !useMissFinal && t < dinoShowHitUntil && trexHit.ready;
-  const activeDino = useMissFinal ? trexMissFinal : useHit ? trexHit : trexHero;
   ctx.save();
   ctx.shadowColor = "rgba(255,122,92,0.55)";
   ctx.shadowBlur = 20 + Math.sin(t / 500) * 7;
-  if (activeDino.ready) {
-    const aspect = (activeDino.img.naturalHeight || 0.6 * activeDino.img.naturalWidth) / activeDino.img.naturalWidth;
+  if (trexHero.ready) {
+    const aspect = (trexHero.img.naturalHeight || 0.6 * trexHero.img.naturalWidth) / trexHero.img.naturalWidth;
     const drawH = dinoSize;
     const drawW = dinoSize / aspect;
-    ctx.drawImage(activeDino.img, dinoX - drawW / 2, dinoY - drawH / 2, drawW, drawH);
+    ctx.drawImage(trexHero.img, dinoX - drawW / 2, dinoY - drawH / 2, drawW, drawH);
   } else {
     ctx.font = `${dinoSize * 0.6}px sans-serif`;
     ctx.textAlign = "center";
@@ -758,7 +788,7 @@ requestAnimationFrame(drawScene);
 
 function triggerFireFx() {
   fx = { type: "fire", startedAt: performance.now() };
-  dinoShowHitUntil = performance.now() + 2200; // matches trex-hit.gif's natural length
+  playCutscene(trexHit, 2200);
 }
 function triggerMissFx() { fx = { type: "miss", startedAt: performance.now() }; }
 function triggerRegroupFx() { fx = { type: "regroup", startedAt: performance.now() }; }
@@ -772,7 +802,7 @@ function registerMiss() {
   playMissSound();
   if (dinoThreatLevel >= DINO_THREAT_MAX) {
     triggerRegroupFx();
-    dinoShowMissFinalUntil = performance.now() + 2800; // let the clip read before falling back
+    playCutscene(trexMissFinal, 2800);
     setTimeout(() => {
       dinoThreatLevel = 0;
     }, 2800);
@@ -1105,7 +1135,11 @@ function nextRound() {
     const hits = salvoMeter.querySelectorAll("span.lit").length;
     endSummary.textContent = `${hits} of ${SESSION_WORDS.length} direct hits, Commander.`;
     playArea.style.display = "none";
-    endScreen.classList.add("show");
+    // The defeated clip gets its full-screen moment before the end screen
+    // (with the return-to-base button) appears underneath it.
+    playCutscene(trexDefeated, 2600).then(() => {
+      endScreen.classList.add("show");
+    });
     return;
   }
   showRound();

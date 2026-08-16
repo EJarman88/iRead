@@ -158,6 +158,18 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   bottom) if the background ever gets swapped for a different piece of art —
   a very differently-composed image would need the dino/gun position
   percentages in `drawScene()` re-tuned.
+- **Event dino clips are full-screen cutscenes, not in-scene sprite swaps.**
+  `#cutsceneOverlay` (a fixed, full-viewport `<img>`, `object-fit: cover`,
+  `z-index` above everything including the game UI) takes over the whole
+  screen for `trex-hit.gif` (correct answer), `trex-miss-final.gif` (3rd-miss
+  regroup), and `trex-defeated.gif` (end of session) — see `playCutscene()`.
+  The ambient in-scene dino always shows the idle `trex-hero.png` sprite now;
+  it no longer swaps to the event clips itself, since the full-screen
+  overlay covers it during those moments anyway. The end-of-session flow
+  specifically **waits** on the defeated cutscene's promise before revealing
+  `#endScreen` underneath it, rather than showing both at once — the static
+  `<img class="end-gif">` that used to sit on the end screen itself was
+  removed since the cutscene now serves that role.
 - Dispatch briefings (`POST /api/game/dispatch`) are generated via the Claude API
   (`claude-haiku-4-5-20251001` — same model Word Helper's vision calls use, same
   `ANTHROPIC_API_KEY` secret) constrained to the current round's session word pool,
