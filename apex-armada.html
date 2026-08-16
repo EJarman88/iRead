@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Reader — Apex Armada</title>
+<style>
+  :root {
+    --abyss: #041824;
+    --panel: #0d2a38;
+    --panel-line: #1b4a5e;
+    --sonar: #38e0c8;
+    --sonar-soft: #1e6b63;
+    --dino: #ff7a5c;
+    --success: #6bdc9c;
+    --error: #ff9a8a;
+    --text: #eafffa;
+    --text-dim: #8fb9bd;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--abyss);
+    font-family: 'Baloo 2', 'Comic Sans MS', system-ui, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+  #scene {
+    position: fixed; inset: 0; z-index: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+
+  .nav-link {
+    position: fixed; top: 16px; z-index: 3;
+    color: var(--text-dim); text-decoration: none;
+    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--sonar-soft);
+    background: rgba(4,24,36,0.6);
+  }
+  .nav-link.home { left: 16px; }
+  .nav-link.reading { right: 16px; top: 16px; }
+  .nav-link.spelling { right: 16px; top: 54px; }
+  .nav-link:hover { color: var(--text); border-color: var(--sonar); }
+
+  main {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; padding: 24px; text-align: center;
+  }
+
+  .command-header { margin-bottom: 14px; }
+  .command-header h1 {
+    margin: 0; font-size: 26px; letter-spacing: 1px;
+    text-shadow: 0 0 16px rgba(56,224,200,0.5);
+  }
+  .command-header .subtitle { margin: 4px 0 0; font-size: 14px; color: var(--text-dim); }
+
+  .dispatch-panel {
+    display: none;
+    max-width: 420px;
+    background: rgba(13,42,56,0.85);
+    border: 1px solid var(--panel-line);
+    border-radius: 16px;
+    padding: 14px 20px;
+    margin-bottom: 16px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .dispatch-panel.show { display: block; }
+  .dispatch-panel .tag {
+    display: block; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--sonar); margin-bottom: 6px;
+  }
+  .dispatch-panel .blank {
+    color: var(--sonar);
+    border-bottom: 2px dashed var(--sonar-soft);
+    padding: 0 2px;
+  }
+
+  .puzzle-panel {
+    background: var(--panel);
+    border: 2px solid var(--panel-line);
+    border-radius: 26px;
+    padding: 32px 44px;
+    box-shadow: 0 0 40px rgba(56,224,200,0.18), inset 0 0 50px rgba(56,224,200,0.05);
+    min-width: 280px;
+    transition: transform 0.2s ease, border-color 0.3s ease;
+  }
+  .puzzle-panel.correct { border-color: var(--success); box-shadow: 0 0 50px rgba(107,220,156,0.4); }
+  .puzzle-panel.incorrect { border-color: var(--error); box-shadow: 0 0 50px rgba(255,154,138,0.3); }
+
+  .cartridge-row {
+    display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .cartridge {
+    width: 34px; height: 44px;
+    background: linear-gradient(180deg, #1c5464, #0d2a38);
+    border: 1px solid var(--sonar-soft);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700;
+    color: var(--sonar);
+  }
+
+  .breech-input {
+    width: 100%;
+    font-size: 32px;
+    text-align: center;
+    letter-spacing: 4px;
+    background: rgba(255,255,255,0.05);
+    border: 2px solid var(--panel-line);
+    border-radius: 14px;
+    padding: 10px 16px;
+    color: var(--text);
+    font-family: inherit;
+    outline: none;
+  }
+  .breech-input:focus { border-color: var(--sonar); }
+  .breech-input:disabled { opacity: 0.6; }
+
+  .action-row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+
+  .fire-btn, .listen-btn-flat {
+    border: none;
+    border-radius: 14px;
+    padding: 12px 26px;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .fire-btn { background: var(--sonar); color: #04211d; }
+  .fire-btn:disabled { opacity: 0.5; cursor: default; }
+  .fire-btn:active:not(:disabled) { transform: scale(0.96); }
+
+  .listen-btn-flat { background: transparent; color: var(--text-dim); border: 1px solid var(--panel-line); }
+  .listen-btn-flat:hover { color: var(--text); border-color: var(--sonar); }
+
+  .status-line { margin-top: 18px; font-size: 17px; color: var(--text-dim); min-height: 26px; }
+
+  .reveal-word {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+    margin-top: 14px; font-size: 36px; font-weight: 700;
+  }
+  .reveal-letter.hit { color: var(--success); }
+  .reveal-letter.miss { color: var(--error); }
+
+  .salvo-meter { display: flex; gap: 10px; margin-top: 30px; }
+  .salvo-meter span {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--panel-line);
+    transition: background 0.4s ease, transform 0.4s ease;
+  }
+  .salvo-meter span.lit { background: var(--sonar); transform: scale(1.25); box-shadow: 0 0 10px var(--sonar); }
+
+  .end-screen {
+    display: none;
+    position: relative; z-index: 1;
+    flex-direction: column; align-items: center; gap: 14px;
+  }
+  .end-screen.show { display: flex; }
+  .end-screen h2 { margin: 0; font-size: 28px; }
+  .end-screen .home-btn {
+    background: var(--sonar); color: #04211d; text-decoration: none;
+    font-weight: 700; padding: 12px 28px; border-radius: 14px;
+  }
+
+  .debug-line {
+    display: none; position: fixed; bottom: 8px; left: 8px; right: 8px; z-index: 3;
+    font-family: monospace; font-size: 12px; color: var(--text-dim);
+    white-space: pre-wrap; text-align: left;
+  }
+  .debug-line.on { display: block; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<a class="nav-link home" href="./index.html">🏠 Home</a>
+<a class="nav-link reading" href="./reading.html">🔊 Reading drill</a>
+<a class="nav-link spelling" href="./spelling.html">✏️ Spelling drill</a>
+
+<main>
+  <div id="playArea">
+    <div class="command-header">
+      <h1>🦖⚓ Apex Armada</h1>
+      <p class="subtitle">Load the cipher breech and fire on the dreadnought!</p>
+    </div>
+
+    <div class="dispatch-panel" id="dispatchPanel">
+      <span class="tag">Sonar dispatch</span>
+      <span id="dispatchText"></span>
+    </div>
+
+    <div class="puzzle-panel" id="puzzlePanel">
+      <div class="cartridge-row" id="cartridgeRow"></div>
+      <input class="breech-input" id="breechInput" type="text" inputmode="text"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+             placeholder="load the breech" disabled>
+      <div class="action-row">
+        <button class="listen-btn-flat" id="listenBtn">🔊 Recon</button>
+        <button class="fire-btn" id="fireBtn" disabled>🔥 Fire</button>
+      </div>
+      <div class="status-line" id="statusLine">Getting your orders...</div>
+      <div class="reveal-word" id="revealWord"></div>
+    </div>
+
+    <div class="salvo-meter" id="salvoMeter"></div>
+  </div>
+
+  <div class="end-screen" id="endScreen">
+    <h2>🎉 Dreadnought neutralized!</h2>
+    <p class="subtitle" id="endSummary"></p>
+    <a class="home-btn" href="./index.html">Return to base</a>
+  </div>
+</main>
+<div class="debug-line" id="debugLine"></div>
+
+<script>
+/* ---------- Config ---------- */
+const WORKER_BASE = "https://reader-app-worker.erica-jarman.workers.dev";
+const GAME_SESSION_WORDS_ENDPOINT = `${WORKER_BASE}/api/game/session-words?count=6`;
+const GAME_DISPATCH_ENDPOINT = `${WORKER_BASE}/api/game/dispatch`;
+const GAME_ATTEMPT_ENDPOINT = `${WORKER_BASE}/api/game/attempt`;
+const TTS_ENDPOINT = `${WORKER_BASE}/api/tts`;
+const FALLBACK_SESSION_WORDS = ["the", "said", "was", "come", "friend", "here"];
+
+const sessionId = (crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+let SESSION_WORDS = [];
+let roundIndex = 0;
+let roundAttemptCount = 0;
+let roundStartedAt = 0;
+let currentMode = "scramble";
+let currentDispatchText = null;
+
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+const debugLine = document.getElementById("debugLine");
+if (DEBUG) debugLine.classList.add("on");
+
+/* ---------- DOM refs ---------- */
+const playArea = document.getElementById("playArea");
+const endScreen = document.getElementById("endScreen");
+const endSummary = document.getElementById("endSummary");
+const dispatchPanel = document.getElementById("dispatchPanel");
+const dispatchText = document.getElementById("dispatchText");
+const puzzlePanel = document.getElementById("puzzlePanel");
+const cartridgeRow = document.getElementById("cartridgeRow");
+const breechInput = document.getElementById("breechInput");
+const fireBtn = document.getElementById("fireBtn");
+const listenBtn = document.getElementById("listenBtn");
+const statusLine = document.getElementById("statusLine");
+const revealWord = document.getElementById("revealWord");
+const salvoMeter = document.getElementById("salvoMeter");
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/* ---------- Audio (optional hint, reuses the shared TTS endpoint) ---------- */
+const ttsPlayer = new Audio();
+let audioUnlocked = false;
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+}
+async function playWord(word) {
+  try {
+    const res = await fetch(`${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=normal`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    ttsPlayer.src = URL.createObjectURL(blob);
+    await ttsPlayer.play();
+  } catch (err) {
+    // Non-blocking: the scrambled letters are still there without audio.
+  }
+}
+listenBtn.addEventListener("click", () => {
+  unlockAudioPlayback();
+  playWord(SESSION_WORDS[roundIndex]);
+});
+
+/* ---------- Ambient canvas scene ---------- */
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+let fx = null; // { type: 'fire' | 'miss', startedAt }
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+function drawScene(t) {
+  const w = canvas.width, h = canvas.height;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, "#052434");
+  grad.addColorStop(1, "#020e16");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Sonar rings drifting outward from center
+  ctx.strokeStyle = "rgba(56,224,200,0.10)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const r = ((t / 1400 + i / 3) % 1) * Math.max(w, h) * 0.6;
+    ctx.beginPath();
+    ctx.arc(w / 2, h * 0.5, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Wave lines
+  ctx.strokeStyle = "rgba(56,224,200,0.15)";
+  for (let row = 0; row < 4; row++) {
+    ctx.beginPath();
+    const baseY = h * 0.72 + row * 18;
+    for (let x = 0; x <= w; x += 12) {
+      const y = baseY + Math.sin((x + t / 20) / 60 + row) * 4;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Dino silhouette (cybernetic dreadnought), pulsing glow, upper-right
+  const dinoX = w * 0.78, dinoY = h * 0.28 + Math.sin(t / 900) * 8;
+  ctx.save();
+  ctx.shadowColor = "rgba(255,122,92,0.6)";
+  ctx.shadowBlur = 24 + Math.sin(t / 500) * 8;
+  ctx.font = `${Math.min(w, h) * 0.14}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText("🦖", dinoX, dinoY);
+  ctx.restore();
+
+  // Ship, bobbing lower-left
+  const shipX = w * 0.22, shipY = h * 0.66 + Math.sin(t / 700) * 6;
+  ctx.save();
+  ctx.shadowColor = "rgba(56,224,200,0.5)";
+  ctx.shadowBlur = 14;
+  ctx.font = `${Math.min(w, h) * 0.11}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText("🚢", shipX, shipY);
+  ctx.restore();
+
+  // FX overlay
+  if (fx) {
+    const elapsed = t - fx.startedAt;
+    if (fx.type === "fire" && elapsed < 700) {
+      const progress = Math.min(elapsed / 550, 1);
+      const cx = shipX + (dinoX - shipX) * progress;
+      const cy = shipY + (dinoY - shipY) * progress - Math.sin(progress * Math.PI) * 60;
+      ctx.save();
+      ctx.fillStyle = "#ffe9a8";
+      ctx.shadowColor = "#ffe9a8";
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      if (progress >= 0.97) {
+        ctx.save();
+        ctx.fillStyle = "rgba(255,233,168,0.5)";
+        ctx.beginPath();
+        ctx.arc(dinoX, dinoY, 50, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (elapsed >= 700) {
+      fx = null;
+    }
+    if (fx && fx.type === "miss" && elapsed < 350) {
+      ctx.save();
+      ctx.fillStyle = `rgba(255,154,138,${0.15 * (1 - elapsed / 350)})`;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    } else if (fx && fx.type === "miss" && elapsed >= 350) {
+      fx = null;
+    }
+  }
+
+  requestAnimationFrame(drawScene);
+}
+requestAnimationFrame(drawScene);
+
+function triggerFireFx() { fx = { type: "fire", startedAt: performance.now() }; }
+function triggerMissFx() { fx = { type: "miss", startedAt: performance.now() }; }
+
+/* ---------- Session setup ---------- */
+function buildSalvoMeter() {
+  salvoMeter.innerHTML = "";
+  SESSION_WORDS.forEach(() => {
+    const s = document.createElement("span");
+    salvoMeter.appendChild(s);
+  });
+}
+function lightSalvo(i) {
+  const pips = salvoMeter.querySelectorAll("span");
+  if (pips[i]) pips[i].classList.add("lit");
+}
+
+async function initSession() {
+  fireBtn.disabled = true;
+  statusLine.textContent = "Getting your orders...";
+  try {
+    const res = await fetch(GAME_SESSION_WORDS_ENDPOINT);
+    const data = await res.json();
+    SESSION_WORDS = Array.isArray(data.words) && data.words.length ? data.words : FALLBACK_SESSION_WORDS;
+  } catch (err) {
+    SESSION_WORDS = FALLBACK_SESSION_WORDS;
+  }
+  buildSalvoMeter();
+  showRound();
+}
+initSession();
+
+/* ---------- Round flow ---------- */
+function scrambleWord(word) {
+  const letters = word.split("");
+  if (letters.length < 2) return letters;
+  let shuffled = letters.slice();
+  let attempts = 0;
+  do {
+    shuffled = shuffled
+      .map((ch) => ({ ch, r: Math.random() }))
+      .sort((a, b) => a.r - b.r)
+      .map((x) => x.ch);
+    attempts++;
+  } while (shuffled.join("") === word && attempts < 10);
+  return shuffled;
+}
+
+function renderCartridges(word) {
+  cartridgeRow.innerHTML = "";
+  scrambleWord(word).forEach((ch) => {
+    const el = document.createElement("div");
+    el.className = "cartridge";
+    el.textContent = ch.toUpperCase();
+    cartridgeRow.appendChild(el);
+  });
+}
+
+async function showRound() {
+  puzzlePanel.classList.remove("correct", "incorrect");
+  revealWord.innerHTML = "";
+  breechInput.value = "";
+  breechInput.disabled = true;
+  fireBtn.disabled = true;
+  dispatchPanel.classList.remove("show");
+  roundAttemptCount = 0;
+  currentDispatchText = null;
+
+  const targetWord = SESSION_WORDS[roundIndex];
+  currentMode = roundIndex % 2 === 0 ? "dispatch" : "scramble";
+
+  renderCartridges(targetWord);
+
+  if (currentMode === "dispatch") {
+    statusLine.textContent = "Receiving transmission...";
+    try {
+      const res = await fetch(GAME_DISPATCH_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ words: SESSION_WORDS, targetWord }),
+      });
+      const data = await res.json();
+      if (data.dispatch) {
+        currentDispatchText = data.dispatch;
+        const blankLen = targetWord.length;
+        const blanked = data.dispatch.replace(
+          new RegExp(`\\b${targetWord}\\b`, "i"),
+          `<span class="blank">${"•".repeat(blankLen)}</span>`
+        );
+        dispatchText.innerHTML = blanked;
+        dispatchPanel.classList.add("show");
+      }
+    } catch (err) {
+      // Non-blocking: the scramble puzzle still works without a dispatch.
+    }
+  }
+
+  statusLine.textContent = "Type the word to load the breech";
+  breechInput.disabled = false;
+  fireBtn.disabled = false;
+  roundStartedAt = performance.now();
+  breechInput.focus();
+}
+
+breechInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !fireBtn.disabled) submitAttempt();
+});
+fireBtn.addEventListener("click", submitAttempt);
+
+async function submitAttempt() {
+  const attempt = breechInput.value.trim().toLowerCase();
+  if (!attempt) return;
+  const targetWord = SESSION_WORDS[roundIndex];
+  roundAttemptCount++;
+
+  breechInput.disabled = true;
+  fireBtn.disabled = true;
+  statusLine.textContent = "Firing...";
+
+  const correct = attempt === targetWord;
+  const latencyMs = Math.round(performance.now() - roundStartedAt);
+
+  try {
+    const res = await fetch(GAME_ATTEMPT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        word: targetWord,
+        mode: currentMode,
+        correct,
+        attemptNumber: roundAttemptCount,
+        latencyMs,
+        dispatchText: currentDispatchText,
+      }),
+    });
+    const result = await res.json();
+    if (DEBUG) {
+      debugLine.textContent =
+        `word="${targetWord}" mode=${currentMode} attempt#${roundAttemptCount} typed="${attempt}" correct=${correct}\n` +
+        `session score=${result.session ? result.session.score : "?"}`;
+    }
+  } catch (err) {
+    // Scoring write failing shouldn't block Dustin's play — mastery data just won't
+    // update for this round.
+  }
+
+  handleResult(correct, attempt, targetWord);
+}
+
+function handleResult(correct, attempt, targetWord) {
+  if (correct) {
+    puzzlePanel.classList.add("correct");
+    statusLine.textContent = "Direct hit! 💥";
+    triggerFireFx();
+    lightSalvo(roundIndex);
+    setTimeout(nextRound, 1400);
+    return;
+  }
+
+  puzzlePanel.classList.add("incorrect");
+  triggerMissFx();
+
+  if (roundAttemptCount === 1) {
+    statusLine.textContent = "Off target — reload and try again";
+    setTimeout(() => {
+      puzzlePanel.classList.remove("incorrect");
+      breechInput.value = "";
+      breechInput.disabled = false;
+      fireBtn.disabled = false;
+      breechInput.focus();
+      renderCartridges(targetWord);
+    }, 1300);
+    return;
+  }
+
+  showReveal(targetWord, attempt);
+  statusLine.textContent = "Here's the cipher, Commander";
+  setTimeout(nextRound, 3000);
+}
+
+function showReveal(targetWord, attempt) {
+  revealWord.innerHTML = targetWord
+    .split("")
+    .map((ch, i) => {
+      const hit = attempt[i] && attempt[i].toLowerCase() === ch.toLowerCase();
+      return `<span class="reveal-letter ${hit ? "hit" : "miss"}">${escapeHtml(ch)}</span>`;
+    })
+    .join("");
+}
+
+function nextRound() {
+  roundIndex++;
+  if (roundIndex >= SESSION_WORDS.length) {
+    const hits = salvoMeter.querySelectorAll("span.lit").length;
+    endSummary.textContent = `${hits} of ${SESSION_WORDS.length} direct hits, Commander.`;
+    playArea.style.display = "none";
+    endScreen.classList.add("show");
+    return;
+  }
+  showRound();
+}
+</script>
+</body>
+</html>
