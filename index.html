@@ -40,194 +40,76 @@
   }
 
   .mascot {
-    font-size: 56px; margin-bottom: 8px;
+    font-size: 64px; margin-bottom: 8px;
     filter: drop-shadow(0 0 12px rgba(124,140,255,0.6));
     animation: float 4s ease-in-out infinite;
   }
   @keyframes float { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-8px);} }
 
-  .prompt-panel {
+  h1 {
+    font-size: 32px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 18px;
+    margin: 0 0 32px;
+  }
+
+  .drill-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    width: 100%;
+    max-width: 340px;
+  }
+
+  .drill-btn {
+    display: flex;
+    align-items: center;
+    gap: 16px;
     background: var(--panel);
     border: 2px solid var(--nebula-soft);
-    border-radius: 28px;
-    padding: 48px 64px;
-    box-shadow: 0 0 40px rgba(124,140,255,0.25), inset 0 0 60px rgba(124,140,255,0.05);
-    min-width: 280px;
-    transition: transform 0.2s ease, border-color 0.3s ease;
-  }
-  .prompt-panel.listening {
-    border-color: var(--star);
-    box-shadow: 0 0 50px rgba(255,233,168,0.35), inset 0 0 60px rgba(255,233,168,0.08);
-  }
-  .prompt-panel.correct {
-    border-color: var(--success);
-    box-shadow: 0 0 50px rgba(107,220,156,0.4);
-  }
-
-  .word {
-    font-size: 72px;
-    font-weight: 700;
-    letter-spacing: 1px;
+    border-radius: 20px;
+    padding: 20px 26px;
     color: var(--text);
-    margin: 0;
+    text-decoration: none;
+    font-size: 22px;
+    font-weight: 700;
+    box-shadow: 0 0 30px rgba(124,140,255,0.15), inset 0 0 40px rgba(124,140,255,0.04);
+    transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   }
-
-  .word.syllable-mode {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: baseline;
-    gap: 8px;
-    font-size: 52px;
+  .drill-btn:active {
+    transform: scale(0.97);
   }
-  .syllable {
-    padding: 2px 10px;
-    border-radius: 12px;
-    cursor: pointer;
-    transition: transform 0.12s ease;
+  .drill-btn:hover {
+    border-color: var(--nebula);
+    box-shadow: 0 0 40px rgba(124,140,255,0.3), inset 0 0 40px rgba(124,140,255,0.06);
   }
-  .syllable:active { transform: scale(0.92); }
-  .syllable.c0 { background: rgba(255,233,168,0.18); color: var(--star); }
-  .syllable.c1 { background: rgba(124,140,255,0.22); color: var(--nebula); }
-
-  .status-line {
-    margin-top: 28px;
-    font-size: 20px;
-    color: var(--text-dim);
-    min-height: 28px;
-  }
-
-  .mic-orb {
-    margin-top: 32px;
-    width: 90px; height: 90px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #9ba7ff, var(--nebula));
-    display: flex; align-items: center; justify-content: center;
-    font-size: 36px;
-    cursor: pointer;
-    border: none;
-    box-shadow: 0 0 0 0 rgba(124,140,255,0.6);
-    transition: transform 0.15s ease;
-  }
-  .mic-orb:active { transform: scale(0.94); }
-  .mic-orb.armed {
-    animation: pulse 1.4s ease-out infinite;
-  }
-  @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(124,140,255,0.5); }
-    70% { box-shadow: 0 0 0 26px rgba(124,140,255,0); }
-    100% { box-shadow: 0 0 0 0 rgba(124,140,255,0); }
-  }
-
-  .star-trail {
-    display: flex; gap: 10px; margin-top: 36px;
-  }
-  .star-trail span {
-    width: 14px; height: 14px;
-    background: var(--nebula-soft);
-    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
-    transition: background 0.4s ease, transform 0.4s ease;
-  }
-  .star-trail span.lit {
-    background: var(--star);
-    transform: scale(1.3);
-  }
-
-  .debug-line {
-    display: none;
-    position: fixed;
-    bottom: 8px; left: 8px; right: 8px;
-    z-index: 2;
-    font-family: monospace;
-    font-size: 12px;
-    color: var(--text-dim);
-    white-space: pre-wrap;
-    text-align: left;
-  }
-  .debug-line.on { display: block; }
-
-  .nav-link {
-    position: fixed; top: 16px; right: 16px; z-index: 2;
-    color: var(--text-dim); text-decoration: none;
-    font-size: 14px; padding: 6px 12px; border-radius: 10px;
-    border: 1px solid var(--nebula-soft);
-  }
-  .nav-link:hover { color: var(--text); border-color: var(--nebula); }
+  .drill-btn .icon { font-size: 34px; }
+  .drill-btn .label { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .drill-btn .label small { font-size: 13px; font-weight: 400; color: var(--text-dim); }
 </style>
 </head>
 <body>
 <div id="stars"></div>
-<a class="nav-link" href="./spelling.html">✏️ Spelling drill</a>
 <main>
   <div class="mascot">🚀</div>
-  <div class="prompt-panel" id="promptPanel">
-    <p class="word" id="wordDisplay">ready</p>
-    <div class="status-line" id="statusLine">Tap the orb, then say the word</div>
-    <button class="mic-orb" id="micOrb" aria-label="Start listening">🎤</button>
-  </div>
-  <div class="star-trail" id="starTrail"></div>
+  <h1>Star Reader</h1>
+  <p class="subtitle">Pick a drill, astronaut!</p>
+  <nav class="drill-picker">
+    <a class="drill-btn" href="./reading.html">
+      <span class="icon">🔊</span>
+      <span class="label">Reading<small>Say the word</small></span>
+    </a>
+    <a class="drill-btn" href="./spelling.html">
+      <span class="icon">✏️</span>
+      <span class="label">Spelling<small>Hear it, type it</small></span>
+    </a>
+  </nav>
 </main>
-<div class="debug-line" id="debugLine"></div>
 
 <script>
-/* ---------- Config ---------- */
-const WORKER_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/score";
-const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
-const SESSION_WORDS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/sight-word/session-words";
-// Only used if the Worker fetch fails outright (offline, Worker down, etc.) — the
-// Worker itself falls back to the same list if no admin word lists are loaded yet.
-const FALLBACK_SESSION_WORDS = ["the", "said", "was", "come", "friend"];
-let SESSION_WORDS = [];
-
-// Reused across every playback (rather than `new Audio()` per call) so the very first
-// play()+pause(), fired synchronously inside the mic-tap gesture, "unlocks" this element
-// for iOS Safari's autoplay policy — later async .play() calls on it then work normally.
-const ttsPlayer = new Audio();
-let audioUnlocked = false;
-function unlockAudioPlayback() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
-  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
-}
-
-// `phonemes` (optional): space-separated SAPI codes forcing exact pronunciation of an
-// isolated fragment, instead of letting TTS guess from `word`'s raw spelling — needed
-// for syllable pieces that aren't valid English spelling on their own.
-async function playWord(word, rate, phonemes) {
-  try {
-    let url = `${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate}`;
-    if (phonemes) url += `&phonemes=${encodeURIComponent(phonemes)}`;
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    ttsPlayer.src = URL.createObjectURL(blob);
-    await ttsPlayer.play();
-  } catch (err) {
-    // Non-blocking: if TTS fails, the text hint alone still stands.
-  }
-}
-
-let wordIndex = 0;
-let wordAttemptCount = 0; // resets each new word; drives gentle-retry vs show-the-sound behavior
-let promptShownAt = 0;
-let vadDetected = false;
-let audioContext, analyser, vadRAF;
-let scriptProcessor, recordedChunks = [], recordingTimeout;
-
-const wordDisplay = document.getElementById("wordDisplay");
-const statusLine = document.getElementById("statusLine");
-const micOrb = document.getElementById("micOrb");
-const promptPanel = document.getElementById("promptPanel");
-const starTrail = document.getElementById("starTrail");
-const debugLine = document.getElementById("debugLine");
-
-// Opt-in diagnostics: append ?debug=1 to the URL to see Azure's raw score on every
-// attempt (not just misses) without disrupting Dustin's normal kid-facing view.
-const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
-if (DEBUG) debugLine.classList.add("on");
-
-/* Starfield background */
 (function makeStars() {
   const field = document.getElementById("stars");
   for (let i = 0; i < 60; i++) {
@@ -241,309 +123,6 @@ if (DEBUG) debugLine.classList.add("on");
     field.appendChild(s);
   }
 })();
-
-function buildStarTrail() {
-  starTrail.innerHTML = "";
-  SESSION_WORDS.forEach(() => {
-    const s = document.createElement("span");
-    starTrail.appendChild(s);
-  });
-}
-
-function showWord(word) {
-  wordDisplay.classList.remove("syllable-mode");
-  wordDisplay.textContent = word;
-  statusLine.textContent = "Tap the orb, then say the word";
-  promptPanel.classList.remove("correct", "listening");
-  promptShownAt = performance.now(); // prompt-appears timestamp: VAD latency baseline
-  wordAttemptCount = 0;
-}
-
-// Renders the word as color-coded, tappable syllable chunks using Azure's spelled-out
-// "Grapheme" per syllable (e.g. cir/cum/stance), not a phonetic symbol — a decoding
-// aid shown only as a hint after he's struggled with a word, never up front.
-// Returns whether a breakdown was actually rendered (false for single-syllable words).
-// Each pill carries its SAPI phonemes as a data attribute so tapping it can force
-// correct pronunciation via SSML rather than letting TTS guess from the raw spelling.
-function showSyllableBreakdown(syllables) {
-  if (!syllables || syllables.length < 2) return false; // nothing to break down
-  wordDisplay.innerHTML = syllables
-    .map(
-      (s, i) =>
-        `<span class="syllable c${i % 2}" data-phonemes="${escapeHtml(s.sapiPhonemes || "")}">${escapeHtml(s.grapheme)}</span>`
-    )
-    .join("");
-  wordDisplay.classList.add("syllable-mode");
-  return true;
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-// Tap a syllable chunk to hear just that piece — event delegation so this keeps
-// working across every re-render of the syllable spans.
-wordDisplay.addEventListener("click", (e) => {
-  const chunk = e.target.closest(".syllable");
-  if (chunk) playWord(chunk.textContent, "slow", chunk.dataset.phonemes);
-});
-
-micOrb.addEventListener("click", startListening);
-
-async function initSession() {
-  micOrb.disabled = true;
-  statusLine.textContent = "Getting your words ready...";
-  try {
-    const res = await fetch(SESSION_WORDS_ENDPOINT);
-    const data = await res.json();
-    SESSION_WORDS = Array.isArray(data.words) && data.words.length ? data.words : FALLBACK_SESSION_WORDS;
-  } catch (err) {
-    SESSION_WORDS = FALLBACK_SESSION_WORDS;
-  }
-  buildStarTrail();
-  showWord(SESSION_WORDS[wordIndex]);
-  micOrb.disabled = false;
-}
-
-initSession();
-
-async function startListening() {
-  if (micOrb.disabled) return;
-  unlockAudioPlayback(); // must happen synchronously in this gesture, before any await
-  micOrb.disabled = true;
-  micOrb.classList.add("armed");
-  promptPanel.classList.add("listening");
-  statusLine.textContent = "Listening...";
-  vadDetected = false;
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    setupRecording(stream);
-
-    // Safety cutoff so a silent mic doesn't hang forever
-    recordingTimeout = setTimeout(() => stopRecording(stream), 6000);
-  } catch (err) {
-    statusLine.textContent = "Couldn't access the microphone";
-    resetOrb();
-  }
-}
-
-/* Records raw PCM via Web Audio API (instead of MediaRecorder's webm/opus) so the
-   Worker can send Azure a Content-Type it actually supports on the short-audio REST
-   endpoint (audio/wav or audio/ogg;codecs=opus — webm is not accepted there, which
-   was silently degrading pronunciation-assessment accuracy).
-   Local voice-activity detection keeps timing decoupled from the correctness check,
-   which happens later server-side (per the doc's scoring pipeline principle). */
-function setupRecording(stream) {
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioContext.createMediaStreamSource(stream);
-  analyser = audioContext.createAnalyser();
-  analyser.fftSize = 512;
-  source.connect(analyser);
-
-  recordedChunks = [];
-  scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-  const silentGain = audioContext.createGain();
-  silentGain.gain.value = 0; // route through destination (required for onaudioprocess) without audible feedback
-  source.connect(scriptProcessor);
-  scriptProcessor.connect(silentGain);
-  silentGain.connect(audioContext.destination);
-  scriptProcessor.onaudioprocess = (e) => {
-    recordedChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-  };
-
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  const THRESHOLD = 22; // tuned empirically; revisit during calibration period
-
-  function checkLevel() {
-    analyser.getByteFrequencyData(data);
-    const avg = data.reduce((a, b) => a + b, 0) / data.length;
-    if (!vadDetected && avg > THRESHOLD) {
-      vadDetected = true;
-      window.__latencyMs = Math.round(performance.now() - promptShownAt);
-      // Stop shortly after speech onset, giving room to capture the full word.
-      setTimeout(() => stopRecording(stream), 1200);
-    }
-    if (scriptProcessor) {
-      vadRAF = requestAnimationFrame(checkLevel);
-    }
-  }
-  vadRAF = requestAnimationFrame(checkLevel);
-}
-
-function stopRecording(stream) {
-  if (!scriptProcessor) return; // already stopped (VAD timeout can race the safety cutoff)
-  clearTimeout(recordingTimeout);
-  cancelAnimationFrame(vadRAF);
-  scriptProcessor.disconnect();
-  scriptProcessor.onaudioprocess = null;
-  scriptProcessor = null;
-  stream.getTracks().forEach((t) => t.stop());
-
-  const sampleRate = audioContext.sampleRate;
-  const samples = mergeFloat32Arrays(recordedChunks);
-  audioContext.close();
-  handleRecordingComplete(samples, sampleRate);
-}
-
-function mergeFloat32Arrays(chunks) {
-  const length = chunks.reduce((sum, c) => sum + c.length, 0);
-  const result = new Float32Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-
-// Azure's short-audio REST endpoint expects 16kHz mono PCM; the mic's AudioContext
-// usually runs at 44.1kHz/48kHz, so nearest-neighbor downsample before encoding.
-function downsampleTo16k(samples, inputSampleRate) {
-  const targetRate = 16000;
-  if (inputSampleRate === targetRate) return samples;
-  const ratio = inputSampleRate / targetRate;
-  const newLength = Math.round(samples.length / ratio);
-  const result = new Float32Array(newLength);
-  for (let i = 0; i < newLength; i++) {
-    result[i] = samples[Math.floor(i * ratio)];
-  }
-  return result;
-}
-
-function encodeWAV(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-
-  writeString(view, 0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(view, 8, "WAVE");
-  writeString(view, 12, "fmt ");
-  view.setUint32(16, 16, true); // PCM chunk size
-  view.setUint16(20, 1, true); // PCM format
-  view.setUint16(22, 1, true); // mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
-  writeString(view, 36, "data");
-  view.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-
-  return new Blob([view], { type: "audio/wav" });
-}
-
-function writeString(view, offset, str) {
-  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-}
-
-async function handleRecordingComplete(samples, sampleRate) {
-  micOrb.classList.remove("armed");
-  statusLine.textContent = "Checking...";
-
-  const pcm16k = downsampleTo16k(samples, sampleRate);
-  const blob = encodeWAV(pcm16k, 16000);
-  const targetWord = SESSION_WORDS[wordIndex];
-  const latencyMs = window.__latencyMs ?? null;
-
-  try {
-    const formData = new FormData();
-    formData.append("audio", blob, "attempt.wav");
-    formData.append("targetWord", targetWord);
-    formData.append("latencyMs", latencyMs ?? "");
-
-    const res = await fetch(WORKER_ENDPOINT, { method: "POST", body: formData });
-    const result = await res.json();
-    // Expected shape: { correct, transcript, wordAccuracy, weakestPhoneme: {phoneme, accuracy} | null }
-    if (DEBUG) {
-      const weakest = result.weakestPhoneme
-        ? `${result.weakestPhoneme.phoneme}=${result.weakestPhoneme.accuracy}`
-        : "n/a";
-      const d = result.debug || {};
-      const syllablesStr = Array.isArray(result.syllables)
-        ? result.syllables.map((s) => s.grapheme).join("-") || "(none)"
-        : "(missing from response)";
-      debugLine.textContent =
-        `word="${targetWord}" attempt#${wordAttemptCount + 1} correct=${result.correct} heard="${result.transcript || ""}"\n` +
-        `wordAccuracy=${result.wordAccuracy} weakestPhoneme=${weakest}\n` +
-        `errorType=${d.wordErrorType} recognitionStatus=${d.recognitionStatus}\n` +
-        `fluency=${d.fluencyScore} completeness=${d.completenessScore} pron=${d.pronScore}\n` +
-        `syllables=${syllablesStr} (breakdown shows starting attempt #2)`;
-    }
-    handleResult(result.correct, result.weakestPhoneme, result.syllables);
-  } catch (err) {
-    statusLine.textContent = "Hmm, that didn't send. Try again!";
-    resetOrb();
-  }
-}
-
-function handleResult(correct, weakestPhoneme, syllables) {
-  if (correct) {
-    promptPanel.classList.add("correct");
-    statusLine.textContent = "Nice reading! 🌟";
-    lightStar(wordIndex);
-    setTimeout(nextWord, 1300);
-    return;
-  }
-
-  wordAttemptCount++;
-
-  if (wordAttemptCount === 1) {
-    // First miss: gentle nudge only, no breakdown yet — avoid overwhelming on the first try.
-    statusLine.textContent = "Let's try that one again";
-    setTimeout(resetOrb, 1200);
-    return;
-  }
-
-  const hasBreakdown = showSyllableBreakdown(syllables);
-
-  if (hasBreakdown && wordAttemptCount <= 3) {
-    // Attempts 2-3 on a multi-syllable word: show the pieces and let him tap them
-    // himself first — no auto-play — so he's driving the exploration before we
-    // just tell him the whole word outright.
-    statusLine.textContent = weakestPhoneme
-      ? `Listen for the "${weakestPhoneme.phoneme}" sound — or tap a piece below`
-      : "Tap a piece below to hear it";
-    setTimeout(resetOrb, 2200);
-  } else {
-    // Attempt 4+, or a single-syllable word with nothing to tap: just say it slowly.
-    const soundHint = weakestPhoneme
-      ? `Listen for the "${weakestPhoneme.phoneme}" sound`
-      : "Let's sound it out together";
-    statusLine.textContent = soundHint;
-    playWord(SESSION_WORDS[wordIndex], "slow");
-    setTimeout(resetOrb, 2200);
-  }
-}
-
-function lightStar(i) {
-  const stars = starTrail.querySelectorAll("span");
-  if (stars[i]) stars[i].classList.add("lit");
-}
-
-function nextWord() {
-  wordIndex++;
-  if (wordIndex >= SESSION_WORDS.length) {
-    wordDisplay.classList.remove("syllable-mode");
-    wordDisplay.textContent = "🎉";
-    statusLine.textContent = "Session complete! Great work, astronaut.";
-    micOrb.style.display = "none";
-    return;
-  }
-  showWord(SESSION_WORDS[wordIndex]);
-  resetOrb();
-}
-
-function resetOrb() {
-  micOrb.disabled = false;
-  micOrb.classList.remove("armed");
-  promptPanel.classList.remove("listening", "correct");
-}
 </script>
 </body>
 </html>

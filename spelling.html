@@ -35,11 +35,13 @@
   @keyframes twinkle { 0%,100% { opacity: .2; } 50% { opacity: .9; } }
 
   .nav-link {
-    position: fixed; top: 16px; right: 16px; z-index: 2;
+    position: fixed; top: 16px; z-index: 2;
     color: var(--text-dim); text-decoration: none;
     font-size: 14px; padding: 6px 12px; border-radius: 10px;
     border: 1px solid var(--nebula-soft);
   }
+  .nav-link.home { left: 16px; }
+  .nav-link.other { right: 16px; }
   .nav-link:hover { color: var(--text); border-color: var(--nebula); }
 
   main {
@@ -181,7 +183,8 @@
 </head>
 <body>
 <div id="stars"></div>
-<a class="nav-link" href="./index.html">🔊 Reading drill</a>
+<a class="nav-link home" href="./index.html">🏠 Home</a>
+<a class="nav-link other" href="./reading.html">🔊 Reading drill</a>
 <main>
   <div class="mascot">🚀</div>
   <div class="prompt-panel" id="promptPanel">
