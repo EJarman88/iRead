@@ -101,11 +101,23 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   ("breech," "salvo," "fire") barely had to change, since naval terminology
   reads fine for spaceship weapons too. If more theme work happens later, keep
   that in mind — most copy survives a visual reskin here.
-- The three `trex-*.gif` files in `assets/apex-armada/` were extracted directly
-  from that source video (cropped frames via Python/OpenCV/Pillow, not
-  hand-made art) — genuinely reasonable placeholders, not a "TODO: replace,"
+- The four `trex-*.gif` files in `assets/apex-armada/` were extracted directly
+  from source videos Erica generated (cropped frames via Python/OpenCV/Pillow,
+  not hand-made art) — genuinely reasonable placeholders, not a "TODO: replace,"
   but Erica may still send cleaner dedicated assets later under the same
   filenames.
+- **The 3rd-miss "regroup" question came up again and was deliberately settled
+  back to the soft version**, not the harder one: Erica sent footage of the
+  dino explicitly winning/dominating and initially asked for an actual session
+  restart on 3 misses ("start over, not lose/game over" — a real restart, just
+  without punitive framing). After a beat she reversed course back to the
+  original no-restart compromise — "the scary flash then fall back idea" — and
+  that footage instead just became a more dramatic visual (`trex-miss-final.gif`)
+  for the *existing* regroup beat: dino looms large for ~2.8s, then the
+  threat level still resets to 0 and play continues unchanged. No restart
+  logic was ever shipped. If this gets revisited again, both directions have
+  been genuinely tried in conversation — it's a real back-and-forth, not a
+  settled design law, so don't be surprised if it comes up a third time.
 - Typed input only. Speech input was explicitly deferred in the original handoff doc
   pending a fix to the sight-word drill's Azure webm/opus scoring bug — wire it in
   later via the same Azure Pronunciation Assessment path `reading.html` already uses.

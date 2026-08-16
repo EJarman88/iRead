@@ -393,7 +393,9 @@ function loadDinoGif(path) {
 }
 const trexIdle = loadDinoGif("./assets/apex-armada/trex-idle.gif");
 const trexHit = loadDinoGif("./assets/apex-armada/trex-hit.gif");
+const trexMissFinal = loadDinoGif("./assets/apex-armada/trex-miss-final.gif");
 let dinoShowHitUntil = 0; // while t < this, draw trexHit instead of trexIdle
+let dinoShowMissFinalUntil = 0; // while t < this, draw trexMissFinal (the 3rd-miss regroup beat)
 
 // The T-Rex creeps toward the cockpit as Dustin misses words outright (not on
 // a forgiven first fumble — see registerMiss()). dinoProximity eases toward
@@ -472,8 +474,9 @@ function drawScene(t) {
   const dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
   const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 8;
   const dinoSize = Math.min(w, h) * 0.16 * (1 + dinoProximity * 0.5);
-  const useHit = t < dinoShowHitUntil && trexHit.ready;
-  const activeDino = useHit ? trexHit : trexIdle;
+  const useMissFinal = t < dinoShowMissFinalUntil && trexMissFinal.ready;
+  const useHit = !useMissFinal && t < dinoShowHitUntil && trexHit.ready;
+  const activeDino = useMissFinal ? trexMissFinal : useHit ? trexHit : trexIdle;
   ctx.save();
   ctx.shadowColor = "rgba(255,122,92,0.6)";
   ctx.shadowBlur = 24 + Math.sin(t / 500) * 8;
@@ -568,9 +571,10 @@ function registerMiss() {
   playMissSound();
   if (dinoThreatLevel >= DINO_THREAT_MAX) {
     triggerRegroupFx();
+    dinoShowMissFinalUntil = performance.now() + 2800; // let the clip read before falling back
     setTimeout(() => {
       dinoThreatLevel = 0;
-    }, 900);
+    }, 2800);
   } else {
     triggerMissFx();
   }

@@ -14,8 +14,9 @@ on next page load, no code changes needed.
 | `trex-idle.gif` | Ambient dino sprite, drawn every frame on the canvas scene | Extracted from Erica's Gemini-generated space-cockpit video. Replace with a cleaner asset any time — same filename, same treatment (animated GIFs play fine when drawn to `<canvas>` every frame). |
 | `trex-hit.gif` | Swaps in for ~2.2s during the "Direct hit!" celebration | |
 | `trex-defeated.gif` | Shown on the end-of-session screen (plain `<img>`, not canvas) | |
+| `trex-miss-final.gif` | Swaps in for ~2.8s at the 3rd-miss "regroup" beat | The dino briefly looms large/dominant, then falls back — no session restart, no lost progress, matching the app's no-loss-state rule. |
 
-All three current `trex-*.gif` files are cropped/recompressed frames from the source video (`/root/.claude/uploads/.../gemini_generated_video_4B840A2F.mp4`) — a placeholder upgrade over the plain emoji, not final art. Swap any of them out any time by dropping in a new file with the same name.
+All four current `trex-*.gif` files are cropped/recompressed frames from source videos Erica generated — a placeholder upgrade over the plain emoji, not final art. Swap any of them out any time by dropping in a new file with the same name.
 
 Keep file sizes modest — these load over the same connection as everything
 else on a phone, no lazy-loading/CDN here.
