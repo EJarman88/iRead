@@ -129,9 +129,35 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   bed) for an over-the-radio feel — see `playBriefingOverRadio()`. `/api/tts`
   grew optional whitelisted `voice`/`pitch` params for this; every existing
   caller is unaffected since they don't pass either.
-- Typed input only. Speech input was explicitly deferred in the original handoff doc
-  pending a fix to the sight-word drill's Azure webm/opus scoring bug — wire it in
-  later via the same Azure Pronunciation Assessment path `reading.html` already uses.
+- **Tap-to-build spelling, not a text input.** Originally typed via a real
+  `<input>`, which was correctly flagged as a mobile problem: the on-screen
+  keyboard popping up would cover most of the screen, defeating the point of
+  a visible scene behind the UI. Replaced with tappable letter tiles — the
+  scrambled pool (`#cartridgeRow`) and an answer row of slots
+  (`#answerRow`), each tile carrying a stable id (its original scrambled-array
+  index, not its character) so words with repeated letters still track
+  correctly. Tapping a filled answer slot removes that specific letter and
+  shifts the rest left, not just "undo the last one." Fire enables once the
+  slot count matches the word length. Voice input (the original handoff doc's
+  next step after typed input) is still deferred pending the sight-word
+  drill's Azure webm/opus scoring bug.
+- **Landscape-only, rebuilt around real generated art.** After the theme
+  pivot above, Erica sent a concept mockup + a real background image
+  (`cockpit-bg.jpg`, landscape ~1365×768) and a transparent dino cutout
+  (`trex-hero.png`) from Gemini and asked to lock in landscape orientation to
+  match. The old hand-drawn canvas scene (gradient, starfield, asteroids,
+  radar-sweep rings, drawn cannon silhouettes) is now a **fallback only**,
+  used if `cockpit-bg.jpg` fails to load — when it's present, the canvas
+  draws it cover-fit as the real background and everything hand-drawn is
+  skipped. The boxed `.puzzle-panel` from the earlier "make it see-through"
+  fix was removed entirely rather than just made translucent — cartridges,
+  answer slots, buttons, and status text now float directly over the scene
+  with their own small backgrounds + text-shadow, matching the mockup's
+  aesthetic (no single wrapping box at all). See `assets/apex-armada/README.md`
+  for the composition assumptions (window area up top, console area at the
+  bottom) if the background ever gets swapped for a different piece of art —
+  a very differently-composed image would need the dino/gun position
+  percentages in `drawScene()` re-tuned.
 - Dispatch briefings (`POST /api/game/dispatch`) are generated via the Claude API
   (`claude-haiku-4-5-20251001` — same model Word Helper's vision calls use, same
   `ANTHROPIC_API_KEY` secret) constrained to the current round's session word pool,

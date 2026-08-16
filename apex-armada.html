@@ -33,60 +33,62 @@
   }
 
   .nav-link {
-    position: fixed; top: 16px; z-index: 3;
+    position: fixed; top: 8px; z-index: 3;
     color: var(--text-dim); text-decoration: none;
-    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    font-size: 12px; padding: 5px 9px; border-radius: 8px;
     border: 1px solid var(--sonar-soft);
-    background: rgba(4,24,36,0.6);
+    background: rgba(4,24,36,0.7);
   }
-  .nav-link.home { left: 16px; }
-  .nav-link.reading { right: 16px; top: 16px; }
-  .nav-link.spelling { right: 16px; top: 54px; }
+  .nav-link.home { left: 8px; }
+  .nav-link.reading { right: 8px; top: 8px; }
+  .nav-link.spelling { right: 8px; top: 38px; }
   .nav-link:hover { color: var(--text); border-color: var(--sonar); }
 
   .music-toggle {
-    position: fixed; top: 92px; right: 16px; z-index: 3;
-    color: var(--text-dim); background: rgba(4,24,36,0.6);
-    border: 1px solid var(--sonar-soft); border-radius: 10px;
-    font-size: 16px; padding: 6px 10px; cursor: pointer; font-family: inherit;
+    position: fixed; top: 68px; right: 8px; z-index: 3;
+    color: var(--text-dim); background: rgba(4,24,36,0.7);
+    border: 1px solid var(--sonar-soft); border-radius: 8px;
+    font-size: 14px; padding: 5px 8px; cursor: pointer; font-family: inherit;
   }
   .music-toggle:hover { color: var(--text); border-color: var(--sonar); }
 
   main {
     position: relative; z-index: 1;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    height: 100%; padding: 24px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    height: 100%; width: 100%;
+    padding: 8px 12px 14px;
+    text-align: center;
   }
 
-  .command-header { margin-bottom: 14px; }
+  .command-header { margin-bottom: 4px; display: flex; align-items: baseline; gap: 8px; }
   .command-header h1 {
-    margin: 0; font-size: 30px; font-weight: 800; letter-spacing: 1px;
-    text-shadow: 0 0 16px rgba(56,224,200,0.5), 0 2px 6px rgba(0,0,0,0.7);
+    margin: 0; font-size: 18px; font-weight: 800; letter-spacing: 0.5px;
+    text-shadow: 0 0 12px rgba(56,224,200,0.5), 0 2px 6px rgba(0,0,0,0.8);
   }
   .command-header .subtitle {
-    margin: 4px 0 0; font-size: 16px; font-weight: 600; color: var(--text);
-    text-shadow: 0 1px 5px rgba(0,0,0,0.8);
+    margin: 0; font-size: 12px; font-weight: 600; color: var(--text);
+    text-shadow: 0 1px 5px rgba(0,0,0,0.9);
   }
 
   .dispatch-panel {
     display: none;
-    max-width: 420px;
-    background: rgba(13,42,56,0.5);
+    max-width: 480px;
+    background: rgba(13,42,56,0.55);
     backdrop-filter: blur(5px);
     -webkit-backdrop-filter: blur(5px);
     border: 1px solid var(--panel-line);
-    border-radius: 16px;
-    padding: 14px 20px;
-    margin-bottom: 16px;
-    font-size: 18px;
+    border-radius: 14px;
+    padding: 8px 16px;
+    margin-bottom: 8px;
+    font-size: 15px;
     font-weight: 600;
-    line-height: 1.5;
+    line-height: 1.35;
     text-shadow: 0 1px 5px rgba(0,0,0,0.8);
   }
   .dispatch-panel.show { display: block; }
   .dispatch-panel .tag {
-    display: block; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
-    color: var(--sonar); margin-bottom: 6px;
+    display: block; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--sonar); margin-bottom: 2px;
   }
   .dispatch-panel .blank {
     color: var(--sonar);
@@ -95,58 +97,54 @@
   }
 
   .puzzle-panel {
-    background: rgba(13,42,56,0.4);
-    backdrop-filter: blur(7px);
-    -webkit-backdrop-filter: blur(7px);
-    border: 2px solid var(--panel-line);
-    border-radius: 26px;
-    padding: 32px 44px;
-    box-shadow: 0 0 40px rgba(56,224,200,0.18), inset 0 0 50px rgba(56,224,200,0.05);
-    min-width: 280px;
-    transition: transform 0.2s ease, border-color 0.3s ease;
+    display: flex; flex-direction: column; align-items: center;
+    max-width: 640px; width: 100%;
+    transition: filter 0.2s ease;
   }
-  .puzzle-panel.correct { border-color: var(--success); box-shadow: 0 0 50px rgba(107,220,156,0.4); }
-  .puzzle-panel.incorrect { border-color: var(--error); box-shadow: 0 0 50px rgba(255,154,138,0.3); }
+  .puzzle-panel.correct { filter: drop-shadow(0 0 16px rgba(107,220,156,0.7)); }
+  .puzzle-panel.incorrect { filter: drop-shadow(0 0 16px rgba(255,154,138,0.7)); }
 
-  .cartridge-row {
-    display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  .tile-row { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+  .cartridge-row { margin-bottom: 6px; }
+  .answer-row { margin-bottom: 6px; }
+
+  .cartridge, .answer-slot {
+    width: 36px; height: 46px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800;
+    font-family: inherit;
+    padding: 0;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.85);
   }
   .cartridge {
-    width: 40px; height: 52px;
-    background: linear-gradient(180deg, rgba(28,84,100,0.85), rgba(13,42,56,0.85));
+    background: linear-gradient(180deg, rgba(28,84,100,0.9), rgba(13,42,56,0.9));
     border: 1px solid var(--sonar-soft);
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 26px; font-weight: 800;
     color: var(--sonar);
-    text-shadow: 0 1px 5px rgba(0,0,0,0.8);
+    cursor: pointer;
+    transition: transform 0.1s ease;
   }
-
-  .breech-input {
-    width: 100%;
-    font-size: 38px;
-    font-weight: 700;
-    text-align: center;
-    letter-spacing: 4px;
-    background: rgba(255,255,255,0.08);
-    border: 2px solid var(--panel-line);
-    border-radius: 14px;
-    padding: 10px 16px;
+  .cartridge:active { transform: scale(0.92); }
+  .answer-slot {
+    background: rgba(255,255,255,0.07);
+    border: 2px dashed var(--panel-line);
     color: var(--text);
-    font-family: inherit;
-    outline: none;
-    text-shadow: 0 1px 5px rgba(0,0,0,0.6);
+    cursor: default;
   }
-  .breech-input:focus { border-color: var(--sonar); }
-  .breech-input:disabled { opacity: 0.6; }
+  .answer-slot.filled {
+    border-style: solid; border-color: var(--sonar);
+    background: rgba(56,224,200,0.16);
+    cursor: pointer;
+  }
+  .answer-slot.filled:active { transform: scale(0.92); }
 
-  .action-row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+  .action-row { display: flex; gap: 8px; justify-content: center; margin-top: 4px; }
 
   .fire-btn, .listen-btn-flat {
     border: none;
-    border-radius: 14px;
-    padding: 12px 26px;
-    font-size: 16px;
+    border-radius: 12px;
+    padding: 9px 20px;
+    font-size: 14px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
@@ -155,59 +153,62 @@
   .fire-btn:disabled { opacity: 0.5; cursor: default; }
   .fire-btn:active:not(:disabled) { transform: scale(0.96); }
 
-  .listen-btn-flat { background: transparent; color: var(--text-dim); border: 1px solid var(--panel-line); }
+  .listen-btn-flat { background: rgba(13,42,56,0.6); color: var(--text-dim); border: 1px solid var(--panel-line); }
   .listen-btn-flat:hover { color: var(--text); border-color: var(--sonar); }
 
   .status-line {
-    margin-top: 18px; font-size: 19px; font-weight: 700; color: var(--text); min-height: 26px;
-    text-shadow: 0 1px 5px rgba(0,0,0,0.8);
+    margin-top: 8px; font-size: 15px; font-weight: 700; color: var(--text); min-height: 20px;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.85);
   }
 
-  .help-row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .help-row { display: flex; gap: 6px; justify-content: center; margin-top: 6px; flex-wrap: wrap; }
   .help-btn {
-    background: rgba(13,42,56,0.5); color: var(--text);
-    border: 1px solid var(--panel-line); border-radius: 10px;
-    padding: 8px 12px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
+    background: rgba(13,42,56,0.6); color: var(--text);
+    border: 1px solid var(--panel-line); border-radius: 9px;
+    padding: 6px 10px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
   }
   .help-btn:hover:not(:disabled) { color: var(--text); border-color: var(--sonar); }
   .help-btn:disabled { opacity: 0.5; cursor: default; }
 
   .hint-line {
-    margin-top: 10px; font-size: 16px; font-weight: 700; color: var(--sonar); min-height: 20px;
-    text-shadow: 0 1px 5px rgba(0,0,0,0.8);
+    margin-top: 5px; font-size: 13px; font-weight: 700; color: var(--sonar); min-height: 16px;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.85);
   }
 
   .reveal-word {
-    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
-    margin-top: 14px; font-size: 40px; font-weight: 800;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;
+    margin-top: 6px; font-size: 28px; font-weight: 800;
   }
-  .reveal-letter.hit { color: var(--success); text-shadow: 0 1px 5px rgba(0,0,0,0.8); }
-  .reveal-letter.miss { color: var(--error); text-shadow: 0 1px 5px rgba(0,0,0,0.8); }
+  .reveal-letter.hit { color: var(--success); text-shadow: 0 1px 5px rgba(0,0,0,0.85); }
+  .reveal-letter.miss { color: var(--error); text-shadow: 0 1px 5px rgba(0,0,0,0.85); }
 
-  .salvo-meter { display: flex; gap: 10px; margin-top: 30px; }
+  .salvo-meter { display: flex; gap: 8px; margin-top: 8px; }
   .salvo-meter span {
-    width: 16px; height: 16px; border-radius: 50%;
+    width: 12px; height: 12px; border-radius: 50%;
     background: var(--panel-line);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.6);
     transition: background 0.4s ease, transform 0.4s ease;
   }
-  .salvo-meter span.lit { background: var(--sonar); transform: scale(1.25); box-shadow: 0 0 10px var(--sonar); }
+  .salvo-meter span.lit { background: var(--sonar); transform: scale(1.25); box-shadow: 0 0 8px var(--sonar); }
 
   .end-screen {
     display: none;
     position: relative; z-index: 1;
-    flex-direction: column; align-items: center; gap: 14px;
+    flex-direction: column; align-items: center; gap: 8px;
+    max-height: 94vh; overflow-y: auto;
   }
   .end-screen.show { display: flex; }
-  .end-screen h2 { margin: 0; font-size: 28px; }
-  .end-screen .end-gif { max-width: 280px; width: 80vw; border-radius: 16px; }
+  .end-screen h2 { margin: 0; font-size: 20px; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+  .end-screen .end-gif { max-height: 32vh; max-width: 60vw; border-radius: 14px; }
+  .end-screen .subtitle { text-shadow: 0 1px 5px rgba(0,0,0,0.85); }
   .end-screen .home-btn {
     background: var(--sonar); color: #04211d; text-decoration: none;
-    font-weight: 700; padding: 12px 28px; border-radius: 14px;
+    font-weight: 700; padding: 9px 22px; border-radius: 12px; font-size: 14px;
   }
 
   .debug-line {
-    display: none; position: fixed; bottom: 8px; left: 8px; right: 8px; z-index: 3;
-    font-family: monospace; font-size: 12px; color: var(--text-dim);
+    display: none; position: fixed; bottom: 4px; left: 4px; right: 4px; z-index: 3;
+    font-family: monospace; font-size: 10px; color: var(--text-dim);
     white-space: pre-wrap; text-align: left;
   }
   .debug-line.on { display: block; }
@@ -215,24 +216,37 @@
   .briefing-screen {
     display: none;
     position: relative; z-index: 1;
-    flex-direction: column; align-items: center; gap: 14px;
-    max-width: 440px; text-align: center;
-    background: var(--panel);
+    flex-direction: row; align-items: center; gap: 18px;
+    max-width: 720px; width: 100%; max-height: 94vh; overflow-y: auto;
+    text-align: left;
+    background: rgba(13,42,56,0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     border: 2px solid var(--panel-line);
-    border-radius: 26px;
-    padding: 30px 34px;
-    box-shadow: 0 0 40px rgba(56,224,200,0.18), inset 0 0 50px rgba(56,224,200,0.05);
+    border-radius: 22px;
+    padding: 18px 22px;
+    box-shadow: 0 0 40px rgba(56,224,200,0.18);
+    flex-wrap: wrap;
+    justify-content: center;
   }
   .briefing-screen.show { display: flex; }
-  .briefing-screen h2 { margin: 2px 0 0; font-size: 24px; }
-  .briefing-screen .briefing-gif { max-width: 200px; width: 56vw; border-radius: 14px; }
-  .briefing-screen .briefing-lede { color: var(--text-dim); font-size: 15px; line-height: 1.5; margin: 0; }
-  .briefing-screen .briefing-list {
-    list-style: none; padding: 0; margin: 4px 0 0; text-align: left;
-    display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text);
+  .briefing-screen .briefing-media {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    flex: 0 0 auto;
   }
-  .briefing-screen .briefing-list li { display: flex; gap: 8px; align-items: flex-start; }
-  .briefing-screen .fire-btn { margin-top: 6px; }
+  .briefing-screen h2 { margin: 0; font-size: 20px; text-align: center; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+  .briefing-screen .briefing-gif { max-height: 26vh; max-width: 34vw; min-width: 140px; border-radius: 14px; }
+  .briefing-screen .briefing-text { flex: 1 1 260px; min-width: 220px; }
+  .briefing-screen .briefing-lede {
+    color: var(--text); font-size: 14px; line-height: 1.45; margin: 0 0 8px;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.85);
+  }
+  .briefing-screen .briefing-list {
+    list-style: none; padding: 0; margin: 0 0 10px; text-align: left;
+    display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text);
+  }
+  .briefing-screen .briefing-list li { display: flex; gap: 6px; align-items: flex-start; text-shadow: 0 1px 5px rgba(0,0,0,0.85); }
+  .briefing-screen .fire-btn { margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -247,37 +261,38 @@
 
 <main>
   <div class="briefing-screen show" id="briefingScreen">
-    <img class="briefing-gif" src="./assets/apex-armada/trex-idle.gif" alt="" onerror="this.style.display='none'">
-    <h2>🦖🚀 Apex Armada</h2>
-    <button class="listen-btn-flat" id="briefingAudioBtn" type="button">📻 Play Briefing</button>
-    <p class="briefing-lede">
-      A cybernetic dreadnought is closing in. Your mission: load the cipher breech and fire back — by spelling the words correctly.
-    </p>
-    <ul class="briefing-list">
-      <li>🔤 Read (or tap Recon to hear) the word, then type it to fire</li>
-      <li>📡 Some rounds carry a sonar transmission — decode the word hidden inside it</li>
-      <li>🔀 Stuck? Use the help buttons: Re-scramble, First/Last letter, Definition, Sound It Out</li>
-      <li>🎵 Music and sound are optional — toggle them anytime with the button in the corner</li>
-    </ul>
-    <button class="fire-btn" id="beginBtn" type="button">🚀 Begin Mission</button>
+    <div class="briefing-media">
+      <img class="briefing-gif" src="./assets/apex-armada/trex-hero.png" alt="" onerror="this.style.display='none'">
+      <button class="listen-btn-flat" id="briefingAudioBtn" type="button">📻 Play Briefing</button>
+    </div>
+    <div class="briefing-text">
+      <h2>🦖🚀 Apex Armada</h2>
+      <p class="briefing-lede">
+        A cybernetic dreadnought is closing in. Your mission: load the cipher breech and fire back — by spelling the words correctly.
+      </p>
+      <ul class="briefing-list">
+        <li>🔤 Read (or tap Recon to hear) the word, then tap the cartridges in order to spell it</li>
+        <li>📡 Some rounds carry a sonar transmission — decode the word hidden inside it</li>
+        <li>🔀 Stuck? Use the help buttons: Re-scramble, First/Last letter, Definition, Sound It Out</li>
+        <li>🎵 Music and sound are optional — toggle them anytime with the button in the corner</li>
+      </ul>
+      <button class="fire-btn" id="beginBtn" type="button">🚀 Begin Mission</button>
+    </div>
   </div>
 
   <div id="playArea" style="display:none">
-    <div class="command-header">
-      <h1>🦖🚀 Apex Armada</h1>
-      <p class="subtitle">Load the cipher breech and fire on the dreadnought!</p>
-    </div>
-
     <div class="dispatch-panel" id="dispatchPanel">
       <span class="tag">Incoming transmission</span>
       <span id="dispatchText"></span>
     </div>
 
     <div class="puzzle-panel" id="puzzlePanel">
-      <div class="cartridge-row" id="cartridgeRow"></div>
-      <input class="breech-input" id="breechInput" type="text" inputmode="text"
-             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-             placeholder="load the breech" disabled>
+      <div class="command-header">
+        <h1>🦖🚀 Apex Armada</h1>
+        <p class="subtitle">Tap the cartridges to load the breech</p>
+      </div>
+      <div class="tile-row cartridge-row" id="cartridgeRow"></div>
+      <div class="tile-row answer-row" id="answerRow"></div>
       <div class="action-row">
         <button class="listen-btn-flat" id="listenBtn">🔊 Recon</button>
         <button class="fire-btn" id="fireBtn" disabled>🔥 Fire</button>
@@ -323,6 +338,13 @@ let roundStartedAt = 0;
 let currentMode = "scramble";
 let currentDispatchText = null;
 let wordHintCache = null; // { word, definition, syllables } — cleared each round
+let controlsEnabled = false;
+
+// Tap-to-build state for the current round. Tiles carry a stable id (their
+// original scrambled-array index) separate from their letter, so words with
+// repeated letters (e.g. "letter") still track each tile individually.
+let scrambledTiles = []; // [{ ch, id }]
+let answerTileIds = []; // ordered ids currently placed in the answer
 
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
 const debugLine = document.getElementById("debugLine");
@@ -339,7 +361,7 @@ const dispatchPanel = document.getElementById("dispatchPanel");
 const dispatchText = document.getElementById("dispatchText");
 const puzzlePanel = document.getElementById("puzzlePanel");
 const cartridgeRow = document.getElementById("cartridgeRow");
-const breechInput = document.getElementById("breechInput");
+const answerRow = document.getElementById("answerRow");
 const fireBtn = document.getElementById("fireBtn");
 const listenBtn = document.getElementById("listenBtn");
 const statusLine = document.getElementById("statusLine");
@@ -390,9 +412,10 @@ function unlockAudioPlayback() {
   ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
   tryPlayMusic();
 }
-// The game doesn't gate play behind a "listen first" tap the way the spelling
-// drill does (the scrambled letters are a visual puzzle, not blind dictation),
-// so unlock on whatever the very first tap anywhere turns out to be.
+// Nothing here gates play behind a "listen first" tap the way the spelling
+// drill does (the scrambled letters are a visual puzzle, not blind dictation,
+// and firing is tap-based, not typed), so unlock on whatever the very first
+// tap anywhere turns out to be.
 document.addEventListener("pointerdown", unlockAudioPlayback, { once: true });
 
 function playHitSound() {
@@ -433,7 +456,7 @@ const RADIO_VOICE = "en-US-GuyNeural";
 const RADIO_PITCH = "-8%";
 const BRIEFING_SCRIPT =
   "Listen up, Commander. A cybernetic dreadnought is closing in, and it is not slowing down. " +
-  "Our only weapon is the cipher breech: read or listen to the word, spell it correctly, and fire. " +
+  "Our only weapon is the cipher breech: read or listen to the word, then tap the cartridges in order to spell it, and fire. " +
   "Some transmissions come in scrambled — decode the word hidden inside before you can fire on it. " +
   "If you get stuck, use the helper console: re-scramble, first and last letter, definition, or sound it out. " +
   "Load the breech, Commander. Let's take this thing down.";
@@ -539,12 +562,9 @@ const canvas = document.getElementById("scene");
 const ctx = canvas.getContext("2d");
 let fx = null; // { type: 'fire' | 'miss' | 'regroup', startedAt }
 
-// Animated GIFs advance their own frames as long as something keeps drawing
-// them, so re-drawing this same <img> every rAF tick animates it on canvas —
-// falls back to the 🦖 emoji if a file hasn't been uploaded yet (or 404s).
-// Three separate clips (idle / hit / defeated) instead of one, since the
-// source footage naturally split into those beats — see assets/apex-armada/README.md.
-function loadDinoGif(path) {
+// Falls back gracefully (a plain gradient + drawn starfield further below, or
+// the 🦖 emoji for the dino) any time an asset hasn't been uploaded yet or 404s.
+function loadImage(path) {
   const img = new Image();
   const state = { img, ready: false };
   img.onload = () => {
@@ -556,10 +576,11 @@ function loadDinoGif(path) {
   img.src = path;
   return state;
 }
-const trexIdle = loadDinoGif("./assets/apex-armada/trex-idle.gif");
-const trexHit = loadDinoGif("./assets/apex-armada/trex-hit.gif");
-const trexMissFinal = loadDinoGif("./assets/apex-armada/trex-miss-final.gif");
-let dinoShowHitUntil = 0; // while t < this, draw trexHit instead of trexIdle
+const cockpitBg = loadImage("./assets/apex-armada/cockpit-bg.jpg");
+const trexHero = loadImage("./assets/apex-armada/trex-hero.png"); // static "idle" sprite
+const trexHit = loadImage("./assets/apex-armada/trex-hit.gif");
+const trexMissFinal = loadImage("./assets/apex-armada/trex-miss-final.gif");
+let dinoShowHitUntil = 0; // while t < this, draw trexHit instead of the idle sprite
 let dinoShowMissFinalUntil = 0; // while t < this, draw trexMissFinal (the 3rd-miss regroup beat)
 
 // The T-Rex creeps toward the cockpit as Dustin misses words outright (not on
@@ -570,8 +591,7 @@ const DINO_THREAT_MAX = 3;
 let dinoThreatLevel = 0;
 let dinoProximity = 0;
 
-// Fixed-position starfield + drifting asteroids, generated once so they don't
-// re-randomize (and flicker) every frame.
+// Fallback-only starfield + asteroids, used if cockpit-bg.jpg hasn't loaded.
 const STARS = Array.from({ length: 70 }, () => ({
   x: Math.random(),
   y: Math.random(),
@@ -592,15 +612,33 @@ function resizeCanvas() {
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-function drawScene(t) {
-  const w = canvas.width, h = canvas.height;
+// Draws an image "cover"-style — filling the canvas, cropping overflow,
+// preserving aspect ratio — same idea as CSS background-size:cover.
+function drawImageCover(image, w, h) {
+  const imgRatio = image.naturalWidth / image.naturalHeight;
+  const canvasRatio = w / h;
+  let drawW, drawH, dx, dy;
+  if (canvasRatio > imgRatio) {
+    drawW = w;
+    drawH = w / imgRatio;
+    dx = 0;
+    dy = (h - drawH) / 2;
+  } else {
+    drawH = h;
+    drawW = h * imgRatio;
+    dy = 0;
+    dx = (w - drawW) / 2;
+  }
+  ctx.drawImage(image, dx, dy, drawW, drawH);
+}
+
+function drawFallbackBackground(t, w, h) {
   const grad = ctx.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, "#050818");
   grad.addColorStop(1, "#01030c");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
-  // Starfield
   ctx.save();
   STARS.forEach((s) => {
     ctx.globalAlpha = 0.4 + Math.sin(t / 500 + s.phase) * 0.3;
@@ -611,7 +649,6 @@ function drawScene(t) {
   });
   ctx.restore();
 
-  // Drifting asteroids
   ctx.fillStyle = "rgba(90,100,112,0.55)";
   ASTEROIDS.forEach((a) => {
     const x = (((a.x + (t / 40000) * a.speed) % 1.2) - 0.1) * w;
@@ -620,7 +657,6 @@ function drawScene(t) {
     ctx.fill();
   });
 
-  // Tactical radar sweep — cockpit HUD ring, reused from the original sonar look
   ctx.strokeStyle = "rgba(56,224,200,0.10)";
   ctx.lineWidth = 1;
   for (let i = 0; i < 3; i++) {
@@ -629,49 +665,49 @@ function drawScene(t) {
     ctx.arc(w / 2, h * 0.5, r, 0, Math.PI * 2);
     ctx.stroke();
   }
+}
+
+function drawScene(t) {
+  const w = canvas.width, h = canvas.height;
+
+  if (cockpitBg.ready) {
+    drawImageCover(cockpitBg.img, w, h);
+  } else {
+    drawFallbackBackground(t, w, h);
+  }
 
   // Dino, pulsing glow, easing closer to the cockpit as dinoProximity rises
   // with each genuine miss. Swaps to the "hit" clip for a couple seconds
-  // after a correct answer (see triggerFireFx()).
+  // after a correct answer (see triggerFireFx()), or the "miss-final" clip
+  // at the 3rd-miss regroup beat (see registerMiss()).
   dinoProximity += ((dinoThreatLevel / DINO_THREAT_MAX) - dinoProximity) * 0.06;
-  const dinoHomeX = w * 0.78, dinoHomeY = h * 0.28;
-  const dinoCloseX = w * 0.5, dinoCloseY = h * 0.42;
+  const dinoHomeX = w * 0.63, dinoHomeY = h * 0.32;
+  const dinoCloseX = w * 0.5, dinoCloseY = h * 0.44;
   const dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
-  const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 8;
-  const dinoSize = Math.min(w, h) * 0.16 * (1 + dinoProximity * 0.5);
+  const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 6;
+  const dinoSize = h * 0.4 * (1 + dinoProximity * 0.4);
   const useMissFinal = t < dinoShowMissFinalUntil && trexMissFinal.ready;
   const useHit = !useMissFinal && t < dinoShowHitUntil && trexHit.ready;
-  const activeDino = useMissFinal ? trexMissFinal : useHit ? trexHit : trexIdle;
+  const activeDino = useMissFinal ? trexMissFinal : useHit ? trexHit : trexHero;
   ctx.save();
-  ctx.shadowColor = "rgba(255,122,92,0.6)";
-  ctx.shadowBlur = 24 + Math.sin(t / 500) * 8;
+  ctx.shadowColor = "rgba(255,122,92,0.55)";
+  ctx.shadowBlur = 20 + Math.sin(t / 500) * 7;
   if (activeDino.ready) {
     const aspect = (activeDino.img.naturalHeight || 0.6 * activeDino.img.naturalWidth) / activeDino.img.naturalWidth;
-    const drawW = dinoSize;
-    const drawH = dinoSize * aspect;
+    const drawH = dinoSize;
+    const drawW = dinoSize / aspect;
     ctx.drawImage(activeDino.img, dinoX - drawW / 2, dinoY - drawH / 2, drawW, drawH);
   } else {
-    ctx.font = `${dinoSize}px sans-serif`;
+    ctx.font = `${dinoSize * 0.6}px sans-serif`;
     ctx.textAlign = "center";
     ctx.fillText("🦖", dinoX, dinoY);
   }
   ctx.restore();
 
-  // Twin cannon silhouettes at the bottom of the canopy — the "our ship" cue,
-  // first-person cockpit style instead of a third-person ship sprite.
-  const gunY = h * 0.86, gunX = w * 0.5;
-  ctx.save();
-  ctx.fillStyle = "rgba(8,16,22,0.92)";
-  ctx.strokeStyle = "rgba(56,224,200,0.35)";
-  ctx.lineWidth = 2;
-  [-1, 1].forEach((side) => {
-    const bx = gunX + side * w * 0.15 - 11;
-    ctx.beginPath();
-    ctx.roundRect(bx, gunY, 22, h - gunY, 7);
-    ctx.fill();
-    ctx.stroke();
-  });
-  ctx.restore();
+  // Fire origin: the visible gun barrel in the background art (lower-left of
+  // the window), so the projectile arc starts from a real part of the scene
+  // instead of a hand-drawn cannon.
+  const gunX = w * 0.22, gunY = h * 0.66;
 
   // FX overlay
   if (fx) {
@@ -682,7 +718,7 @@ function drawScene(t) {
     if (fx.type === "fire" && elapsed < duration) {
       const progress = Math.min(elapsed / 550, 1);
       const cx = gunX + (dinoX - gunX) * progress;
-      const cy = gunY + (dinoY - gunY) * progress - Math.sin(progress * Math.PI) * 60;
+      const cy = gunY + (dinoY - gunY) * progress - Math.sin(progress * Math.PI) * 50;
       ctx.save();
       ctx.fillStyle = "#ffe9a8";
       ctx.shadowColor = "#ffe9a8";
@@ -695,7 +731,7 @@ function drawScene(t) {
         ctx.save();
         ctx.fillStyle = "rgba(255,233,168,0.5)";
         ctx.beginPath();
-        ctx.arc(dinoX, dinoY, 50, 0, Math.PI * 2);
+        ctx.arc(dinoX, dinoY, 46, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
@@ -781,45 +817,107 @@ beginBtn.addEventListener("click", () => {
   initSession();
 });
 
-/* ---------- Round flow ---------- */
-function scrambleWord(word) {
-  const letters = word.split("");
-  if (letters.length < 2) return letters;
-  let shuffled = letters.slice();
+/* ---------- Round flow: tap-to-build spelling (no on-screen keyboard) ---------- */
+// Each letter of the target word becomes its own tile with a stable id (its
+// position in the scrambled array) — kept separate from its character so
+// words with repeated letters still track each tile individually.
+function scrambleTiles(word) {
+  const tiles = word.split("").map((ch, id) => ({ ch, id }));
+  if (tiles.length < 2) return tiles;
+  let shuffled = tiles.slice();
   let attempts = 0;
   do {
-    shuffled = shuffled
-      .map((ch) => ({ ch, r: Math.random() }))
-      .sort((a, b) => a.r - b.r)
-      .map((x) => x.ch);
+    shuffled = shuffleArray(shuffled);
     attempts++;
-  } while (shuffled.join("") === word && attempts < 10);
+  } while (shuffled.map((t) => t.ch).join("") === word && attempts < 10);
   return shuffled;
 }
 
-function renderCartridges(word) {
+function shuffleArray(arr) {
+  return arr
+    .map((item) => ({ item, r: Math.random() }))
+    .sort((a, b) => a.r - b.r)
+    .map((x) => x.item);
+}
+
+function renderPool() {
   cartridgeRow.innerHTML = "";
-  scrambleWord(word).forEach((ch) => {
-    const el = document.createElement("div");
-    el.className = "cartridge";
-    el.textContent = ch.toUpperCase();
-    cartridgeRow.appendChild(el);
-  });
+  scrambledTiles
+    .filter((tile) => !answerTileIds.includes(tile.id))
+    .forEach((tile) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "cartridge";
+      el.textContent = tile.ch.toUpperCase();
+      el.addEventListener("click", () => selectTile(tile.id));
+      cartridgeRow.appendChild(el);
+    });
+}
+
+function renderAnswerRow(word) {
+  answerRow.innerHTML = "";
+  for (let i = 0; i < word.length; i++) {
+    const id = answerTileIds[i];
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "answer-slot";
+    if (id !== undefined) {
+      const tile = scrambledTiles.find((t) => t.id === id);
+      el.textContent = tile.ch.toUpperCase();
+      el.classList.add("filled");
+      el.addEventListener("click", () => deselectTile(i));
+    }
+    answerRow.appendChild(el);
+  }
+  updateFireEnabled();
+}
+
+function selectTile(id) {
+  if (!controlsEnabled) return;
+  const targetWord = SESSION_WORDS[roundIndex];
+  if (answerTileIds.includes(id) || answerTileIds.length >= targetWord.length) return;
+  answerTileIds.push(id);
+  renderPool();
+  renderAnswerRow(targetWord);
+}
+
+// Removing a specific slot (not just the last one) shifts everything after it
+// left — lets Dustin fix a letter placed earlier without clearing the whole word.
+function deselectTile(slotIndex) {
+  if (!controlsEnabled) return;
+  answerTileIds.splice(slotIndex, 1);
+  renderPool();
+  renderAnswerRow(SESSION_WORDS[roundIndex]);
+}
+
+function currentAnswerString() {
+  return answerTileIds.map((id) => scrambledTiles.find((t) => t.id === id).ch).join("");
+}
+
+function updateFireEnabled() {
+  const targetWord = SESSION_WORDS[roundIndex];
+  fireBtn.disabled = !controlsEnabled || answerTileIds.length !== targetWord.length;
+}
+
+function renderCartridges(word) {
+  scrambledTiles = scrambleTiles(word);
+  answerTileIds = [];
+  renderPool();
+  renderAnswerRow(word);
 }
 
 function setControlsEnabled(enabled) {
-  breechInput.disabled = !enabled;
-  fireBtn.disabled = !enabled;
+  controlsEnabled = enabled;
   rescrambleBtn.disabled = !enabled;
   lettersBtn.disabled = !enabled;
   defineBtn.disabled = !enabled;
   soundBtn.disabled = !enabled;
+  updateFireEnabled();
 }
 
 async function showRound() {
   puzzlePanel.classList.remove("correct", "incorrect");
   revealWord.innerHTML = "";
-  breechInput.value = "";
   setControlsEnabled(false);
   dispatchPanel.classList.remove("show");
   hintLine.textContent = "";
@@ -856,21 +954,17 @@ async function showRound() {
     }
   }
 
-  statusLine.textContent = "Type the word to load the breech";
+  statusLine.textContent = "Tap the cartridges to load the breech";
   setControlsEnabled(true);
   roundStartedAt = performance.now();
-  breechInput.focus();
 }
 
-breechInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !fireBtn.disabled) submitAttempt();
-});
 fireBtn.addEventListener("click", submitAttempt);
 
 async function submitAttempt() {
-  const attempt = breechInput.value.trim().toLowerCase();
-  if (!attempt) return;
   const targetWord = SESSION_WORDS[roundIndex];
+  if (answerTileIds.length !== targetWord.length) return;
+  const attempt = currentAnswerString();
   roundAttemptCount++;
 
   setControlsEnabled(false);
@@ -925,10 +1019,8 @@ function handleResult(correct, attempt, targetWord) {
     statusLine.textContent = "Off target — reload and try again";
     setTimeout(() => {
       puzzlePanel.classList.remove("incorrect");
-      breechInput.value = "";
-      setControlsEnabled(true);
-      breechInput.focus();
       renderCartridges(targetWord);
+      setControlsEnabled(true);
     }, 1300);
     return;
   }
@@ -952,10 +1044,12 @@ function showReveal(targetWord, attempt) {
 }
 
 /* ---------- Help buttons ---------- */
-// Free, instant, no attempt penalty — re-shuffles the same visual hint that's
-// already on screen, doesn't touch scoring.
+// Free, instant, no attempt penalty — reorders only the still-available pool
+// tiles, doesn't touch anything already placed in the answer.
 rescrambleBtn.addEventListener("click", () => {
-  renderCartridges(SESSION_WORDS[roundIndex]);
+  if (!controlsEnabled) return;
+  scrambledTiles = shuffleArray(scrambledTiles);
+  renderPool();
 });
 
 // Also free/instant — the target word is already known client-side, so this
