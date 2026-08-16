@@ -68,6 +68,16 @@
  *   raw pasted text (newline or comma separated). Parses, dedupes, and writes to
  *   reading:dustin:wordlist:{source}.
  *
+ * Route: GET /api/admin/progress
+ *   Requires header X-Admin-Passcode. Aggregates everything already being recorded
+ *   across the other routes into one payload for the admin dashboard:
+ *   { recentSessions, wordsTrackedCount, wordsMasteredCount, wordsNeedingPractice,
+ *   passages, screenerSessions }. Reads every reading:dustin:words:* /
+ *   reading:dustin:passages:* / reading:dustin:screener:* entry plus the last
+ *   ADMIN_RECENT_DAYS of reading:dustin:sessions:* — admin-only and infrequently
+ *   called, so the KV read volume here (unlike the per-drill-launch endpoints) isn't
+ *   a concern at this app's scale.
+ *
  * Route: GET /api/passage/session
  *   Public, no gate. Returns { passages: [{ id, text, question: { prompt, options,
  *   correctIndex } }] } — PASSAGE_SESSION_COUNT passages from the built-in PASSAGES
@@ -328,6 +338,10 @@ export default {
 
     if (url.pathname === "/api/admin/wordlist" && request.method === "POST") {
       return withCors(await handleAdminAddWordlist(request, env));
+    }
+
+    if (url.pathname === "/api/admin/progress" && request.method === "GET") {
+      return withCors(await handleAdminProgress(request, env));
     }
 
     return withCors(new Response("Not found", { status: 404 }));
@@ -591,6 +605,112 @@ async function handleAdminAddWordlist(request, env) {
     console.error("Admin add wordlist error:", err && err.message);
     return jsonResponse({ error: "Failed to save word list", detail: err && err.message }, 500);
   }
+}
+
+const ADMIN_RECENT_DAYS = 30;
+const NEEDS_PRACTICE_MIN_ATTEMPTS = 2;
+const NEEDS_PRACTICE_ACCURACY_BELOW = 0.7;
+const MASTERED_MIN_ATTEMPTS = 2;
+const MASTERED_ACCURACY_AT_LEAST = 0.9;
+
+async function handleAdminProgress(request, env) {
+  if (!isAdminAuthorized(request, env)) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  try {
+    const kv = env.TUTOR_KV;
+
+    const sessionKeys = await kv.list({ prefix: `${KV_PREFIX}sessions:` });
+    const recentSessionNames = sessionKeys.keys
+      .map((k) => k.name)
+      .sort()
+      .reverse()
+      .slice(0, ADMIN_RECENT_DAYS);
+    const sessionRecords = await Promise.all(recentSessionNames.map((name) => kv.get(name)));
+    const recentSessions = sessionRecords
+      .map((raw) => (raw ? JSON.parse(raw) : null))
+      .filter(Boolean)
+      .map(summarizeSessionDay);
+
+    const wordKeys = await kv.list({ prefix: `${KV_PREFIX}words:` });
+    const wordRecords = await Promise.all(wordKeys.keys.map((k) => kv.get(k.name)));
+    const wordStats = wordKeys.keys.map((k, i) => {
+      const word = k.name.slice(`${KV_PREFIX}words:`.length);
+      const parsed = wordRecords[i] ? JSON.parse(wordRecords[i]) : null;
+      return summarizeWordRecord(word, parsed);
+    });
+    const trackedWords = wordStats.filter((w) => w.totalAttempts > 0);
+    const wordsNeedingPractice = trackedWords
+      .filter((w) => w.totalAttempts >= NEEDS_PRACTICE_MIN_ATTEMPTS && w.accuracy !== null && w.accuracy < NEEDS_PRACTICE_ACCURACY_BELOW)
+      .sort((a, b) => a.accuracy - b.accuracy)
+      .slice(0, 20);
+    const wordsMasteredCount = trackedWords.filter(
+      (w) => w.totalAttempts >= MASTERED_MIN_ATTEMPTS && w.accuracy !== null && w.accuracy >= MASTERED_ACCURACY_AT_LEAST
+    ).length;
+
+    const passageKeys = await kv.list({ prefix: `${KV_PREFIX}passages:` });
+    const passageRecords = await Promise.all(passageKeys.keys.map((k) => kv.get(k.name)));
+    const passages = passageKeys.keys.map((k, i) => {
+      const id = k.name.slice(`${KV_PREFIX}passages:`.length);
+      const parsed = passageRecords[i] ? JSON.parse(passageRecords[i]) : {};
+      return {
+        id,
+        attempts: parsed.attempts || 0,
+        bestAccuracy: parsed.bestAccuracy || 0,
+        lastAccuracy: typeof parsed.lastAccuracy === "number" ? parsed.lastAccuracy : null,
+        lastAttemptAt: parsed.lastAttemptAt || null,
+      };
+    });
+
+    const screenerKeys = await kv.list({ prefix: `${KV_PREFIX}screener:` });
+    const screenerNames = screenerKeys.keys.map((k) => k.name).sort().reverse();
+    const screenerRecords = await Promise.all(screenerNames.map((name) => kv.get(name)));
+    const screenerSessions = screenerRecords.map((raw) => (raw ? JSON.parse(raw) : null)).filter(Boolean);
+
+    return jsonResponse({
+      recentSessions,
+      wordsTrackedCount: trackedWords.length,
+      wordsMasteredCount,
+      wordsNeedingPractice,
+      passages,
+      screenerSessions,
+    });
+  } catch (err) {
+    console.error("Admin progress error:", err && err.message);
+    return jsonResponse({ error: "Failed to load progress", detail: err && err.message }, 500);
+  }
+}
+
+function summarizeWordRecord(word, record) {
+  const reading = (record && record.reading) || {};
+  const spelling = (record && record.spelling) || {};
+  const readingAttempts = reading.attempts || 0;
+  const readingCorrect = reading.correct || 0;
+  const spellingAttempts = spelling.attempts || 0;
+  const spellingCorrect = spelling.correct || 0;
+  const totalAttempts = readingAttempts + spellingAttempts;
+  const totalCorrect = readingCorrect + spellingCorrect;
+  return {
+    word,
+    totalAttempts,
+    accuracy: totalAttempts > 0 ? totalCorrect / totalAttempts : null,
+    readingAttempts,
+    readingAccuracy: readingAttempts > 0 ? readingCorrect / readingAttempts : null,
+    spellingAttempts,
+    spellingAccuracy: spellingAttempts > 0 ? spellingCorrect / spellingAttempts : null,
+    timesLookedUpInWordHelper: (record && record.wordHelper && record.wordHelper.timesLookedUp) || 0,
+  };
+}
+
+function summarizeSessionDay(session) {
+  const byDrill = {};
+  (session.items || []).forEach((item) => {
+    const drillType = item.drillType || "unknown";
+    if (!byDrill[drillType]) byDrill[drillType] = { attempts: 0, correct: 0 };
+    byDrill[drillType].attempts += 1;
+    if (item.correct === true) byDrill[drillType].correct += 1;
+  });
+  return { date: session.date, drillCounts: byDrill };
 }
 
 async function handleScore(request, env) {

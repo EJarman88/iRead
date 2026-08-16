@@ -112,6 +112,20 @@
   .empty-note { color: var(--ink-dim); font-size: 13px; }
   .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
   .file-input { font-size: 13px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .stat-row { display: flex; gap: 20px; margin-bottom: 16px; }
+  .stat { font-size: 13px; color: var(--ink-dim); }
+  .stat strong { display: block; font-size: 22px; color: var(--ink); font-weight: 700; }
+  .day-line { font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .day-line:last-child { border-bottom: none; }
+  .day-date { font-weight: 600; margin-right: 8px; }
+  .practice-word { font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  .practice-word:last-child { border-bottom: none; }
+  .practice-word .acc { color: var(--error); font-weight: 600; }
+  .screener-session { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .screener-session h3 { font-size: 13px; margin: 0 0 8px; color: var(--ink-dim); font-weight: 600; }
+  .screener-item { font-size: 13px; padding: 4px 0; }
+  .screener-item .said { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -133,6 +147,15 @@
       <h1>Star Reader — Admin</h1>
       <button class="secondary" id="logoutBtn">Log out</button>
     </div>
+
+    <div class="panel">
+      <div class="row">
+        <h2 style="margin:0;">Progress</h2>
+        <button class="secondary" id="refreshProgressBtn">Refresh</button>
+      </div>
+      <div id="progressWrap"><p class="empty-note">Loading...</p></div>
+    </div>
+
     <p class="subtitle">Word-list intake — paste or upload vocab, no redeploy needed.</p>
 
     <div class="panel">
@@ -215,6 +238,7 @@ async function tryUnlock(candidate) {
     gateStatus.textContent = "";
     gateEl.style.display = "none";
     adminEl.style.display = "block";
+    fetchProgress(passcode);
   } else if (result.reason === "unauthorized") {
     gateStatus.textContent = "Wrong passcode — or the ADMIN_PASSCODE secret hasn't been set on the Worker yet.";
   } else if (result.reason === "not-found") {
@@ -262,6 +286,118 @@ function renderWordlists(wordlists) {
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+const progressWrap = document.getElementById("progressWrap");
+const refreshProgressBtn = document.getElementById("refreshProgressBtn");
+
+const DRILL_LABELS = {
+  "sight-word": "Reading",
+  spelling: "Spelling",
+  passage: "Passage",
+  "word-helper": "Word Helper",
+};
+
+async function fetchProgress(candidatePasscode) {
+  try {
+    const res = await fetch(`${WORKER_ORIGIN}/api/admin/progress`, {
+      headers: { "X-Admin-Passcode": candidatePasscode },
+    });
+    if (!res.ok) {
+      progressWrap.innerHTML = '<p class="empty-note">Couldn\'t load progress data.</p>';
+      return;
+    }
+    renderProgress(await res.json());
+  } catch (err) {
+    progressWrap.innerHTML = '<p class="empty-note">Couldn\'t reach the Worker.</p>';
+  }
+}
+
+function renderProgress(data) {
+  const parts = [];
+
+  parts.push(`<div class="stat-row">
+    <div class="stat"><strong>${data.wordsTrackedCount || 0}</strong>words practiced</div>
+    <div class="stat"><strong>${data.wordsMasteredCount || 0}</strong>words mastered</div>
+  </div>`);
+
+  parts.push("<h2>Recent activity</h2>");
+  if (!data.recentSessions || !data.recentSessions.length) {
+    parts.push('<p class="empty-note">No sessions yet.</p>');
+  } else {
+    parts.push(
+      data.recentSessions
+        .map((day) => {
+          const bits = Object.keys(day.drillCounts)
+            .map((dt) => {
+              const label = DRILL_LABELS[dt] || dt;
+              const c = day.drillCounts[dt];
+              return dt === "word-helper" ? `${label}: ${c.attempts} lookup${c.attempts === 1 ? "" : "s"}` : `${label}: ${c.correct}/${c.attempts}`;
+            })
+            .join(" · ");
+          return `<div class="day-line"><span class="day-date">${escapeHtml(day.date)}</span>${escapeHtml(bits)}</div>`;
+        })
+        .join("")
+    );
+  }
+
+  parts.push("<h2>Words needing practice</h2>");
+  if (!data.wordsNeedingPractice || !data.wordsNeedingPractice.length) {
+    parts.push('<p class="empty-note">Nothing standing out yet — either early days, or he\'s doing well.</p>');
+  } else {
+    parts.push(
+      data.wordsNeedingPractice
+        .map(
+          (w) =>
+            `<div class="practice-word"><span>${escapeHtml(w.word)}</span><span class="acc">${Math.round(w.accuracy * 100)}% (${w.totalAttempts} attempts)</span></div>`
+        )
+        .join("")
+    );
+  }
+
+  parts.push("<h2>Passages</h2>");
+  if (!data.passages || !data.passages.length) {
+    parts.push('<p class="empty-note">No passage attempts yet.</p>');
+  } else {
+    const rows = data.passages
+      .map((p) => `<tr><td>${escapeHtml(p.id)}</td><td>${p.attempts}</td><td>${Math.round(p.bestAccuracy)}%</td></tr>`)
+      .join("");
+    parts.push(`<table><thead><tr><th>Passage</th><th>Attempts</th><th>Best</th></tr></thead><tbody>${rows}</tbody></table>`);
+  }
+
+  parts.push("<h2>Sound Check sessions</h2>");
+  if (!data.screenerSessions || !data.screenerSessions.length) {
+    parts.push('<p class="empty-note">No Sound Check sessions yet.</p>');
+  } else {
+    parts.push(data.screenerSessions.map(renderScreenerSession).join(""));
+  }
+
+  progressWrap.innerHTML = parts.join("");
+}
+
+function renderScreenerSession(session) {
+  const when = session.sessionId ? new Date(session.sessionId).toLocaleString() : "Unknown time";
+  const rhymeCorrect = (session.rhymeAnswers || []).filter((r) => r.givenAnswer === r.correctAnswer).length;
+  const rhymeTotal = (session.rhymeAnswers || []).length;
+
+  const isolationLines = (session.isolationResponses || [])
+    .map((r) => `<div class="screener-item">"${escapeHtml(r.word)}" (${escapeHtml(r.target)} sound) — said: <span class="said">"${escapeHtml(r.transcript || "(nothing heard)")}"</span></div>`)
+    .join("");
+  const blendingLines = (session.blendingResponses || [])
+    .map((r) => `<div class="screener-item">target word "${escapeHtml(r.answer)}" — said: <span class="said">"${escapeHtml(r.transcript || "(nothing heard)")}"</span></div>`)
+    .join("");
+  const segmentationLines = (session.segmentationResponses || [])
+    .map((r) => `<div class="screener-item">"${escapeHtml(r.word)}" — said: <span class="said">"${escapeHtml(r.transcript || "(nothing heard)")}"</span></div>`)
+    .join("");
+
+  return `<div class="screener-session">
+    <h3>${escapeHtml(when)} — Rhyme: ${rhymeCorrect}/${rhymeTotal}</h3>
+    ${isolationLines ? `<div class="hint">First/last sound isolation</div>${isolationLines}` : ""}
+    ${blendingLines ? `<div class="hint">Blending</div>${blendingLines}` : ""}
+    ${segmentationLines ? `<div class="hint">Segmentation</div>${segmentationLines}` : ""}
+  </div>`;
+}
+
+refreshProgressBtn.addEventListener("click", () => fetchProgress(passcode));
 
 refreshBtn.addEventListener("click", () => fetchWordlists(passcode));
 
