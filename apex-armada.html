@@ -231,6 +231,7 @@
   <div class="briefing-screen show" id="briefingScreen">
     <img class="briefing-gif" src="./assets/apex-armada/trex-idle.gif" alt="" onerror="this.style.display='none'">
     <h2>🦖🚀 Apex Armada</h2>
+    <button class="listen-btn-flat" id="briefingAudioBtn" type="button">📻 Play Briefing</button>
     <p class="briefing-lede">
       A cybernetic dreadnought is closing in. Your mission: load the cipher breech and fire back — by spelling the words correctly.
     </p>
@@ -312,6 +313,7 @@ if (DEBUG) debugLine.classList.add("on");
 /* ---------- DOM refs ---------- */
 const briefingScreen = document.getElementById("briefingScreen");
 const beginBtn = document.getElementById("beginBtn");
+const briefingAudioBtn = document.getElementById("briefingAudioBtn");
 const playArea = document.getElementById("playArea");
 const endScreen = document.getElementById("endScreen");
 const endSummary = document.getElementById("endSummary");
@@ -406,6 +408,112 @@ async function playWord(word) {
 listenBtn.addEventListener("click", () => {
   unlockAudioPlayback();
   playWord(SESSION_WORDS[roundIndex]);
+});
+
+/* ---------- Briefing narration (captain's voice, over radio) ---------- */
+const RADIO_VOICE = "en-US-GuyNeural";
+const RADIO_PITCH = "-8%";
+const BRIEFING_SCRIPT =
+  "Listen up, Commander. A cybernetic dreadnought is closing in, and it is not slowing down. " +
+  "Our only weapon is the cipher breech: read or listen to the word, spell it correctly, and fire. " +
+  "Some transmissions come in scrambled — decode the word hidden inside before you can fire on it. " +
+  "If you get stuck, use the helper console: re-scramble, first and last letter, definition, or sound it out. " +
+  "Load the breech, Commander. Let's take this thing down.";
+
+// Soft clipping curve — the "compressed and a little crunchy" character of a
+// cheap ship radio speaker, not a clean TTS read.
+function makeRadioDistortionCurve(amount) {
+  const n = 44100;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+// Quiet static bed under the voice, same duration, filtered the same way so it
+// reads as part of the transmission rather than separate noise.
+function playRadioStatic(audioCtx, duration) {
+  const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.05;
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = "bandpass";
+  noiseFilter.frequency.value = 1800;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.5;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(audioCtx.destination);
+  noise.start();
+}
+
+// Fetches the briefing as speech (deeper "captain" voice + pitch, via /api/tts),
+// then runs it through a small Web Audio filter chain — highpass + narrow
+// bandpass + soft-clip distortion, plus a quiet static bed — so it sounds like
+// it's coming over the ship's radio instead of a clean TTS read.
+async function playBriefingOverRadio(text) {
+  const url = `${TTS_ENDPOINT}?word=${encodeURIComponent(text)}&rate=normal&voice=${RADIO_VOICE}&pitch=${RADIO_PITCH}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`TTS request failed: ${res.status}`);
+  const arrayBuffer = await res.arrayBuffer();
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = audioBuffer;
+
+  const highpass = audioCtx.createBiquadFilter();
+  highpass.type = "highpass";
+  highpass.frequency.value = 300;
+
+  const bandpass = audioCtx.createBiquadFilter();
+  bandpass.type = "bandpass";
+  bandpass.frequency.value = 1600;
+  bandpass.Q.value = 0.7;
+
+  const shaper = audioCtx.createWaveShaper();
+  shaper.curve = makeRadioDistortionCurve(18);
+  shaper.oversample = "2x";
+
+  const gain = audioCtx.createGain();
+  gain.gain.value = 1.6; // compensate for the filtering/distortion cutting perceived loudness
+
+  source.connect(highpass);
+  highpass.connect(bandpass);
+  bandpass.connect(shaper);
+  shaper.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  playRadioStatic(audioCtx, audioBuffer.duration);
+
+  return new Promise((resolve) => {
+    source.onended = () => {
+      audioCtx.close();
+      resolve();
+    };
+    source.start();
+  });
+}
+
+briefingAudioBtn.addEventListener("click", async () => {
+  unlockAudioPlayback();
+  briefingAudioBtn.disabled = true;
+  briefingAudioBtn.textContent = "📻 Transmitting...";
+  try {
+    await playBriefingOverRadio(BRIEFING_SCRIPT);
+  } catch (err) {
+    // Non-blocking: the written briefing still stands without narration.
+  }
+  briefingAudioBtn.disabled = false;
+  briefingAudioBtn.textContent = "📻 Play Briefing";
 });
 
 /* ---------- Ambient canvas scene (first-person cockpit, deep space) ---------- */

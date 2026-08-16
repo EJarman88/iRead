@@ -122,7 +122,13 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   words aren't fetched and `initSession()` doesn't run until Dustin taps
   "Begin Mission." Explains the objective, both round modes, all four help
   buttons, and the music toggle up front, since none of that was previously
-  explained in-game anywhere.
+  explained in-game anywhere. Has an optional "📻 Play Briefing" button that
+  narrates the mission in a deeper "captain" voice
+  (`en-US-GuyNeural`, pitch -8%) run through a client-side Web Audio filter
+  chain (highpass + narrow bandpass + soft-clip distortion + a quiet static
+  bed) for an over-the-radio feel — see `playBriefingOverRadio()`. `/api/tts`
+  grew optional whitelisted `voice`/`pitch` params for this; every existing
+  caller is unaffected since they don't pass either.
 - Typed input only. Speech input was explicitly deferred in the original handoff doc
   pending a fix to the sight-word drill's Azure webm/opus scoring bug — wire it in
   later via the same Azure Pronunciation Assessment path `reading.html` already uses.
