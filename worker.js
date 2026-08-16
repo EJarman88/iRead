@@ -92,6 +92,29 @@
  *   Updates reading:dustin:passages:{id}{attempts,bestAccuracy} and appends today's
  *   session log with drillType "passage".
  *
+ * Phonemic awareness screener — NOT a drill, NOT gamified, NOT a diagnostic
+ * instrument. It's a structured way to capture what Dustin actually says in
+ * response to sound-level tasks (rhyme judgment, first/last sound isolation,
+ * blending, segmentation), for a parent to bring to an actual evaluation.
+ * Deliberately unweighted/unscored beyond the one objectively-answerable task
+ * (rhyme) — see transcribeAudio()'s comment for why production tasks aren't
+ * auto-graded.
+ *
+ * Route: GET /api/screener/session
+ *   Public, no gate. Returns { rhyme, isolation, blending, segmentation }, each
+ *   SCREENER_ITEMS_PER_TASK items randomly drawn (plain shuffle, not adaptive —
+ *   a screener needs representative coverage, not a focus on weak spots) from the
+ *   built-in item banks.
+ *
+ * Route: POST /api/screener/transcribe
+ *   multipart/form-data: audio (16kHz mono PCM WAV). Returns { transcript } via
+ *   plain Azure speech-to-text — no reference-text bias, no scoring.
+ *
+ * Route: POST /api/screener/submit
+ *   JSON body: { rhymeAnswers, isolationResponses, blendingResponses,
+ *   segmentationResponses } — the full session as already collected client-side.
+ *   Stored verbatim to reading:dustin:screener:{timestamp}. Returns { ok, sessionId }.
+ *
  * Additional binding expected:
  *   ADMIN_PASSCODE - encrypted secret, shared passcode gating the /api/admin/* routes
  */
@@ -178,6 +201,75 @@ const PASSAGES = [
   },
 ];
 
+const SCREENER_ITEMS_PER_TASK = 5;
+
+// Plain unbiased shuffle — the screener needs broad, representative item coverage
+// each session, not the adaptive weighting used for practice drills (weighting
+// toward "what he's bad at" would bias exactly the signal this is trying to observe).
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Phonemic awareness screener item bank — deliberately simple monosyllabic words
+// (standard practice for phonological awareness screening regardless of the
+// child's age/grade — the task is testing sound processing, not vocabulary).
+// This is NOT a diagnostic instrument; it's a structured way to capture
+// observations (what was said, in response to what prompt) for a parent to bring
+// to an actual evaluation. Nothing here is auto-scored as "correct" except the
+// rhyme task, which has an objective yes/no answer independent of production.
+const RHYME_PAIRS = [
+  { id: "r1", wordA: "cat", wordB: "hat", rhyme: true },
+  { id: "r2", wordA: "dog", wordB: "log", rhyme: true },
+  { id: "r3", wordA: "sun", wordB: "run", rhyme: true },
+  { id: "r4", wordA: "cup", wordB: "dog", rhyme: false },
+  { id: "r5", wordA: "tree", wordB: "bee", rhyme: true },
+  { id: "r6", wordA: "book", wordB: "hook", rhyme: true },
+  { id: "r7", wordA: "fish", wordB: "car", rhyme: false },
+  { id: "r8", wordA: "light", wordB: "night", rhyme: true },
+];
+
+const ISOLATION_ITEMS = [
+  { id: "i1", word: "sun", target: "first" },
+  { id: "i2", word: "cat", target: "last" },
+  { id: "i3", word: "milk", target: "first" },
+  { id: "i4", word: "dog", target: "last" },
+  { id: "i5", word: "fish", target: "first" },
+  { id: "i6", word: "bell", target: "last" },
+  { id: "i7", word: "pen", target: "first" },
+  { id: "i8", word: "top", target: "last" },
+];
+
+// sapiPhonemes: SAPI phone codes played individually (with a pause between each)
+// via the existing /api/tts?phonemes= override — the same forced-pronunciation
+// mechanism the reading drill uses for syllable pills, just applied to single
+// isolated sounds here instead of spelled syllable chunks.
+const BLENDING_ITEMS = [
+  { id: "b1", sapiPhonemes: ["k", "ae", "t"], answer: "cat" },
+  { id: "b2", sapiPhonemes: ["s", "ah", "n"], answer: "sun" },
+  { id: "b3", sapiPhonemes: ["d", "ao", "g"], answer: "dog" },
+  { id: "b4", sapiPhonemes: ["m", "ae", "p"], answer: "map" },
+  { id: "b5", sapiPhonemes: ["r", "ah", "n"], answer: "run" },
+  { id: "b6", sapiPhonemes: ["p", "ih", "g"], answer: "pig" },
+  { id: "b7", sapiPhonemes: ["b", "eh", "d"], answer: "bed" },
+  { id: "b8", sapiPhonemes: ["hh", "ae", "t"], answer: "hat" },
+];
+
+const SEGMENTATION_ITEMS = [
+  { id: "s1", word: "dog" },
+  { id: "s2", word: "cat" },
+  { id: "s3", word: "sun" },
+  { id: "s4", word: "map" },
+  { id: "s5", word: "fish" },
+  { id: "s6", word: "bell" },
+  { id: "s7", word: "pen" },
+  { id: "s8", word: "top" },
+];
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -208,6 +300,18 @@ export default {
 
     if (url.pathname === "/api/passage/score" && request.method === "POST") {
       return withCors(await handlePassageScore(request, env));
+    }
+
+    if (url.pathname === "/api/screener/session" && request.method === "GET") {
+      return withCors(await handleScreenerSession(request, env));
+    }
+
+    if (url.pathname === "/api/screener/transcribe" && request.method === "POST") {
+      return withCors(await handleScreenerTranscribe(request, env));
+    }
+
+    if (url.pathname === "/api/screener/submit" && request.method === "POST") {
+      return withCors(await handleScreenerSubmit(request, env));
     }
 
     if (url.pathname === "/api/tts" && request.method === "GET") {
@@ -377,6 +481,59 @@ async function handlePassageScore(request, env) {
   } catch (err) {
     console.error("Passage scoring error:", err && err.message);
     return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
+  }
+}
+
+async function handleScreenerSession(request, env) {
+  const pick = (bank) => shuffle(bank).slice(0, Math.min(SCREENER_ITEMS_PER_TASK, bank.length));
+  return jsonResponse({
+    rhyme: pick(RHYME_PAIRS),
+    isolation: pick(ISOLATION_ITEMS),
+    blending: pick(BLENDING_ITEMS),
+    segmentation: pick(SEGMENTATION_ITEMS),
+  });
+}
+
+// Plain transcription only — no correctness scoring. Deliberately does NOT use
+// assessPronunciation()'s Pronunciation-Assessment header: that biases Azure's
+// alignment toward a reference word, which would mask exactly the kind of thing
+// this screener wants to observe (what he actually produced, unprompted-toward
+// any expected answer).
+async function handleScreenerTranscribe(request, env) {
+  try {
+    const formData = await request.formData();
+    const audio = formData.get("audio");
+    if (!audio) {
+      return jsonResponse({ error: "Missing audio" }, 400);
+    }
+    const transcript = await transcribeAudio(audio, env.AZURE_SPEECH_KEY, env.AZURE_SPEECH_REGION);
+    return jsonResponse({ transcript });
+  } catch (err) {
+    console.error("Screener transcribe error:", err && err.message);
+    return jsonResponse({ error: "Transcription failed", detail: err && err.message }, 500);
+  }
+}
+
+// Stores the full completed screener session — everything the client already
+// collected during the session (rhyme answers, transcripts for the three
+// production tasks) — verbatim. No scoring/pass-fail computed here beyond the
+// objective rhyme count; this is a record for a parent to review, not a report card.
+async function handleScreenerSubmit(request, env) {
+  try {
+    const body = await request.json();
+    const sessionId = new Date().toISOString();
+    const record = {
+      sessionId,
+      rhymeAnswers: Array.isArray(body.rhymeAnswers) ? body.rhymeAnswers : [],
+      isolationResponses: Array.isArray(body.isolationResponses) ? body.isolationResponses : [],
+      blendingResponses: Array.isArray(body.blendingResponses) ? body.blendingResponses : [],
+      segmentationResponses: Array.isArray(body.segmentationResponses) ? body.segmentationResponses : [],
+    };
+    await env.TUTOR_KV.put(`${KV_PREFIX}screener:${sessionId}`, JSON.stringify(record));
+    return jsonResponse({ ok: true, sessionId });
+  } catch (err) {
+    console.error("Screener submit error:", err && err.message);
+    return jsonResponse({ error: "Failed to save screener session", detail: err && err.message }, 500);
   }
 }
 
@@ -906,6 +1063,49 @@ async function assessPronunciation(audioBlob, targetWord, apiKey, region) {
     completenessScore: typeof best.CompletenessScore === "number" ? best.CompletenessScore : null,
     pronScore: typeof best.PronScore === "number" ? best.PronScore : null,
   };
+}
+
+// Plain speech-to-text, no Pronunciation-Assessment header — same endpoint and
+// audio format as assessPronunciation(), but without a reference-text bias, so
+// the transcript reflects what was actually said rather than an alignment
+// nudged toward an expected word. Used by the phonemic awareness screener.
+async function transcribeAudio(audioBlob, apiKey, region) {
+  const trimmedKey = (apiKey || "").trim();
+  const trimmedRegion = (region || "").trim();
+  if (!trimmedKey || !trimmedRegion) {
+    throw new Error("Missing AZURE_SPEECH_KEY or AZURE_SPEECH_REGION binding");
+  }
+
+  const audioBuffer = await audioBlob.arrayBuffer();
+
+  let res;
+  try {
+    res = await fetch(
+      `https://${trimmedRegion}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US`,
+      {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": trimmedKey,
+          "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+          Accept: "application/json",
+        },
+        body: audioBuffer,
+      }
+    );
+  } catch (networkErr) {
+    console.error("Azure Speech (plain transcribe) network error:", networkErr.message);
+    throw new Error(`Azure Speech network error: ${networkErr.message}`);
+  }
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("Azure Speech (plain transcribe) non-OK response:", res.status, errText);
+    throw new Error(`Azure Speech API error: ${res.status} ${errText}`);
+  }
+
+  const data = await res.json();
+  if (data.RecognitionStatus !== "Success") return "";
+  return (data.DisplayText || "").trim();
 }
 
 function base64Encode(str) {

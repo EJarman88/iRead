@@ -89,6 +89,20 @@
   .drill-btn .icon { font-size: 34px; }
   .drill-btn .label { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   .drill-btn .label small { font-size: 13px; font-weight: 400; color: var(--text-dim); }
+
+  /* Deliberately quieter than .drill-btn — not another drill, a separate
+     observational tool, so it shouldn't visually compete with the game-like
+     picker above it. */
+  .secondary-link {
+    display: block;
+    margin-top: 22px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 14px;
+    border-bottom: 1px dotted var(--nebula-soft);
+    padding-bottom: 2px;
+  }
+  .secondary-link:hover { color: var(--text); border-color: var(--nebula); }
 </style>
 </head>
 <body>
@@ -115,6 +129,7 @@
       <span class="label">Passage Reading<small>Read it out loud</small></span>
     </a>
   </nav>
+  <a class="secondary-link" href="./screener.html">Sound Check — a few listening questions</a>
 </main>
 
 <script>

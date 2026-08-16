@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sound Check</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --panel: #ffffff;
+    --ink: #2c2c2a;
+    --ink-dim: #6b6a66;
+    --line: #dedcd6;
+    --accent: #5b7a8c;
+    --accent-soft: #e4ecef;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+  }
+  .nav-link {
+    position: fixed; top: 16px; left: 16px; z-index: 2;
+    color: var(--ink-dim); text-decoration: none;
+    font-size: 14px; padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .nav-link:hover { color: var(--ink); border-color: var(--accent); }
+
+  main {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100%; padding: 72px 20px 40px; text-align: center;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 32px 28px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  }
+
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .subtitle { color: var(--ink-dim); font-size: 14px; margin: 0 0 24px; }
+
+  .progress-line {
+    font-size: 13px; color: var(--ink-dim); margin-bottom: 18px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+
+  .prompt-word {
+    font-size: 30px;
+    font-weight: 700;
+    margin: 10px 0 18px;
+  }
+  .instruction {
+    font-size: 17px;
+    line-height: 1.5;
+    margin: 0 0 22px;
+  }
+
+  .btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 22px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .btn.secondary {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .btn.stop { background: #a85d5d; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+
+  .status-line {
+    margin-top: 16px;
+    font-size: 14px;
+    color: var(--ink-dim);
+    min-height: 20px;
+  }
+
+  .rec-indicator {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+    color: #a85d5d;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .rec-indicator.on { display: flex; }
+  .rec-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #a85d5d;
+    animation: pulse-dot 1s ease-in-out infinite;
+  }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+<a class="nav-link" href="./index.html">🏠 Home</a>
+<main>
+  <div class="panel" id="panel">
+    <h1 id="heading">Sound Check</h1>
+    <p class="subtitle" id="subtitle">A few listening and sound questions — no rush, take your time.</p>
+
+    <div id="introStage">
+      <p class="instruction">You'll hear some words and sounds, and answer a few short questions about them. There's no wrong way to do this.</p>
+      <div class="btn-row">
+        <button class="btn" id="beginBtn">Start</button>
+      </div>
+    </div>
+
+    <div id="taskStage" style="display:none;">
+      <p class="progress-line" id="progressLine"></p>
+      <p class="prompt-word" id="promptWord"></p>
+      <p class="instruction" id="instructionText"></p>
+
+      <div class="btn-row" id="rhymeButtons" style="display:none;">
+        <button class="btn secondary" id="rhymeYesBtn">Yes</button>
+        <button class="btn secondary" id="rhymeNoBtn">No</button>
+      </div>
+
+      <div class="btn-row" id="preRecordButtons" style="display:none;">
+        <button class="btn secondary" id="replayBtn">🔊 Hear it again</button>
+        <button class="btn" id="recordBtn">🎤 Record answer</button>
+      </div>
+      <div class="rec-indicator" id="recIndicator"><span class="rec-dot"></span> Recording...</div>
+      <div class="btn-row" id="stopRow" style="display:none;">
+        <button class="btn stop" id="stopBtn">✅ Done</button>
+      </div>
+
+      <p class="status-line" id="statusLine"></p>
+    </div>
+
+    <div id="doneStage" style="display:none;">
+      <p class="instruction">All done — thank you! 🙂</p>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ---------- Config ---------- */
+const SESSION_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/screener/session";
+const TRANSCRIBE_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/screener/transcribe";
+const SUBMIT_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/screener/submit";
+const TTS_ENDPOINT = "https://reader-app-worker.erica-jarman.workers.dev/api/tts";
+const MAX_RECORDING_MS = 15000;
+const PHONEME_GAP_MS = 700;
+
+const ttsPlayer = new Audio();
+let audioUnlocked = false;
+function unlockAudioPlayback() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  ttsPlayer.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+  ttsPlayer.play().then(() => ttsPlayer.pause()).catch(() => {});
+}
+
+function playOnce(url) {
+  return new Promise((resolve) => {
+    fetch(url)
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => {
+        if (!blob) return resolve();
+        ttsPlayer.src = URL.createObjectURL(blob);
+        ttsPlayer.onended = () => resolve();
+        ttsPlayer.play().catch(() => resolve());
+      })
+      .catch(() => resolve());
+  });
+}
+
+async function playWord(word, rate) {
+  await playOnce(`${TTS_ENDPOINT}?word=${encodeURIComponent(word)}&rate=${rate || "normal"}`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Plays each SAPI phoneme in isolation with a pause between, so the three
+// sounds are heard as distinct — the whole point of the blending task is
+// mentally joining separately-heard sounds, not hearing them pre-blended.
+async function playPhonemeSequence(sapiPhonemes) {
+  for (const p of sapiPhonemes) {
+    await playOnce(`${TTS_ENDPOINT}?word=${encodeURIComponent(p)}&phonemes=${encodeURIComponent(p)}&rate=slow`);
+    await sleep(PHONEME_GAP_MS);
+  }
+}
+
+const introStage = document.getElementById("introStage");
+const taskStage = document.getElementById("taskStage");
+const doneStage = document.getElementById("doneStage");
+const beginBtn = document.getElementById("beginBtn");
+const progressLine = document.getElementById("progressLine");
+const promptWord = document.getElementById("promptWord");
+const instructionText = document.getElementById("instructionText");
+const rhymeButtons = document.getElementById("rhymeButtons");
+const rhymeYesBtn = document.getElementById("rhymeYesBtn");
+const rhymeNoBtn = document.getElementById("rhymeNoBtn");
+const preRecordButtons = document.getElementById("preRecordButtons");
+const replayBtn = document.getElementById("replayBtn");
+const recordBtn = document.getElementById("recordBtn");
+const recIndicator = document.getElementById("recIndicator");
+const stopRow = document.getElementById("stopRow");
+const stopBtn = document.getElementById("stopBtn");
+const statusLine = document.getElementById("statusLine");
+
+const SECTIONS = [
+  { key: "rhyme", label: "Rhyming" },
+  { key: "isolation", label: "First & last sounds" },
+  { key: "blending", label: "Blending sounds" },
+  { key: "segmentation", label: "Breaking words into sounds" },
+];
+
+let SESSION = null;
+let sectionIndex = 0;
+let itemIndex = 0;
+let totalItems = 0;
+
+const collected = { rhymeAnswers: [], isolationResponses: [], blendingResponses: [], segmentationResponses: [] };
+
+let audioContext, scriptProcessor, recordedChunks = [], recordingTimeout;
+
+beginBtn.addEventListener("click", async () => {
+  unlockAudioPlayback();
+  beginBtn.disabled = true;
+  statusLine.textContent = "Loading...";
+  try {
+    const res = await fetch(SESSION_ENDPOINT);
+    SESSION = await res.json();
+  } catch (err) {
+    SESSION = null;
+  }
+  if (!SESSION) {
+    statusLine.textContent = "Couldn't load — try again in a bit.";
+    beginBtn.disabled = false;
+    return;
+  }
+  totalItems = SECTIONS.reduce((sum, s) => sum + (SESSION[s.key] || []).length, 0);
+  introStage.style.display = "none";
+  taskStage.style.display = "block";
+  showCurrentItem();
+});
+
+function currentSection() {
+  return SECTIONS[sectionIndex];
+}
+
+function currentItems() {
+  return SESSION[currentSection().key] || [];
+}
+
+function showCurrentItem() {
+  // Skip past any empty sections (e.g. a session that came back short).
+  while (sectionIndex < SECTIONS.length && itemIndex >= currentItems().length) {
+    sectionIndex++;
+    itemIndex = 0;
+  }
+  if (sectionIndex >= SECTIONS.length) {
+    finishSession();
+    return;
+  }
+
+  statusLine.textContent = "";
+  rhymeButtons.style.display = "none";
+  preRecordButtons.style.display = "none";
+  stopRow.style.display = "none";
+  recIndicator.classList.remove("on");
+
+  const section = currentSection();
+  const item = currentItems()[itemIndex];
+  const overallDone = SECTIONS.slice(0, sectionIndex).reduce((sum, s) => sum + (SESSION[s.key] || []).length, 0) + itemIndex + 1;
+  progressLine.textContent = `${section.label} — question ${itemIndex + 1} of ${currentItems().length} (${overallDone} of ${totalItems} overall)`;
+
+  if (section.key === "rhyme") {
+    promptWord.textContent = "";
+    instructionText.textContent = "Listen to two words. Do they rhyme?";
+    rhymeButtons.style.display = "flex";
+    playWord(item.wordA, "normal").then(() => sleep(400)).then(() => playWord(item.wordB, "normal"));
+    return;
+  }
+
+  if (section.key === "isolation") {
+    promptWord.textContent = item.word;
+    instructionText.textContent = `What's the ${item.target} sound in this word?`;
+    preRecordButtons.style.display = "flex";
+    playWord(item.word, "normal");
+    return;
+  }
+
+  if (section.key === "blending") {
+    promptWord.textContent = "🔊 🔊 🔊";
+    instructionText.textContent = "Listen to the sounds, then say the word they make.";
+    preRecordButtons.style.display = "flex";
+    playPhonemeSequence(item.sapiPhonemes);
+    return;
+  }
+
+  if (section.key === "segmentation") {
+    promptWord.textContent = item.word;
+    instructionText.textContent = "Say each sound you hear in this word, one at a time.";
+    preRecordButtons.style.display = "flex";
+    playWord(item.word, "normal");
+    return;
+  }
+}
+
+replayBtn.addEventListener("click", () => {
+  const section = currentSection();
+  const item = currentItems()[itemIndex];
+  if (section.key === "blending") playPhonemeSequence(item.sapiPhonemes);
+  else playWord(item.word, "normal");
+});
+
+rhymeYesBtn.addEventListener("click", () => submitRhymeAnswer(true));
+rhymeNoBtn.addEventListener("click", () => submitRhymeAnswer(false));
+
+function submitRhymeAnswer(givenAnswer) {
+  const item = currentItems()[itemIndex];
+  collected.rhymeAnswers.push({
+    id: item.id,
+    wordA: item.wordA,
+    wordB: item.wordB,
+    correctAnswer: item.rhyme,
+    givenAnswer,
+  });
+  advance();
+}
+
+recordBtn.addEventListener("click", startRecording);
+stopBtn.addEventListener("click", () => stopRecording());
+
+async function startRecording() {
+  unlockAudioPlayback();
+  preRecordButtons.style.display = "none";
+  stopRow.style.display = "flex";
+  recIndicator.classList.add("on");
+  statusLine.textContent = "";
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    setupRecording(stream);
+    recordingTimeout = setTimeout(() => stopRecording(), MAX_RECORDING_MS);
+  } catch (err) {
+    statusLine.textContent = "Couldn't access the microphone";
+    preRecordButtons.style.display = "flex";
+    stopRow.style.display = "none";
+    recIndicator.classList.remove("on");
+  }
+}
+
+function setupRecording(stream) {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(stream);
+  recordedChunks = [];
+  scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+  const silentGain = audioContext.createGain();
+  silentGain.gain.value = 0;
+  source.connect(scriptProcessor);
+  scriptProcessor.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+  scriptProcessor.onaudioprocess = (e) => {
+    recordedChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  };
+  window.__activeStream = stream;
+}
+
+function stopRecording() {
+  if (!scriptProcessor) return;
+  clearTimeout(recordingTimeout);
+  scriptProcessor.disconnect();
+  scriptProcessor.onaudioprocess = null;
+  scriptProcessor = null;
+  if (window.__activeStream) {
+    window.__activeStream.getTracks().forEach((t) => t.stop());
+    window.__activeStream = null;
+  }
+  recIndicator.classList.remove("on");
+  stopRow.style.display = "none";
+
+  const sampleRate = audioContext.sampleRate;
+  const samples = mergeFloat32Arrays(recordedChunks);
+  audioContext.close();
+  handleRecordingComplete(samples, sampleRate);
+}
+
+function mergeFloat32Arrays(chunks) {
+  const length = chunks.reduce((sum, c) => sum + c.length, 0);
+  const result = new Float32Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+function downsampleTo16k(samples, inputSampleRate) {
+  const targetRate = 16000;
+  if (inputSampleRate === targetRate) return samples;
+  const ratio = inputSampleRate / targetRate;
+  const newLength = Math.round(samples.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    result[i] = samples[Math.floor(i * ratio)];
+  }
+  return result;
+}
+
+function encodeWAV(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([view], { type: "audio/wav" });
+}
+
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+async function handleRecordingComplete(samples, sampleRate) {
+  statusLine.textContent = "Saving your answer...";
+  const pcm16k = downsampleTo16k(samples, sampleRate);
+  const blob = encodeWAV(pcm16k, 16000);
+
+  let transcript = "";
+  try {
+    const formData = new FormData();
+    formData.append("audio", blob, "answer.wav");
+    const res = await fetch(TRANSCRIBE_ENDPOINT, { method: "POST", body: formData });
+    const result = await res.json();
+    transcript = result.transcript || "";
+  } catch (err) {
+    transcript = "";
+  }
+
+  const section = currentSection();
+  const item = currentItems()[itemIndex];
+  if (section.key === "isolation") {
+    collected.isolationResponses.push({ id: item.id, word: item.word, target: item.target, transcript });
+  } else if (section.key === "blending") {
+    collected.blendingResponses.push({ id: item.id, answer: item.answer, transcript });
+  } else if (section.key === "segmentation") {
+    collected.segmentationResponses.push({ id: item.id, word: item.word, transcript });
+  }
+
+  advance();
+}
+
+function advance() {
+  itemIndex++;
+  showCurrentItem();
+}
+
+async function finishSession() {
+  taskStage.style.display = "none";
+  doneStage.style.display = "block";
+  try {
+    await fetch(SUBMIT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(collected),
+    });
+  } catch (err) {
+    // Best-effort — the session already happened either way, nothing more to
+    // show him if saving failed.
+  }
+}
+</script>
+</body>
+</html>
