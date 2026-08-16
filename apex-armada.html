@@ -623,6 +623,7 @@ function playCutscene(imgState, durationMs) {
 const DINO_THREAT_MAX = 3;
 let dinoThreatLevel = 0;
 let dinoProximity = 0;
+let dinoDefeated = false; // true once the session ends — the dino stops being drawn
 
 // Fallback-only starfield + asteroids, used if cockpit-bg.jpg hasn't loaded.
 const STARS = Array.from({ length: 70 }, () => ({
@@ -712,27 +713,32 @@ function drawScene(t) {
   // Ambient dino, pulsing glow, easing closer to the cockpit as dinoProximity
   // rises with each genuine miss. Always the idle sprite in-scene now — the
   // hit/regroup/defeated moments take over the whole screen instead of
-  // swapping the in-scene sprite (see playCutscene()).
-  dinoProximity += ((dinoThreatLevel / DINO_THREAT_MAX) - dinoProximity) * 0.06;
-  const dinoHomeX = w * 0.63, dinoHomeY = h * 0.32;
-  const dinoCloseX = w * 0.5, dinoCloseY = h * 0.44;
-  const dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
-  const dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 6;
-  const dinoSize = h * 0.4 * (1 + dinoProximity * 0.4);
-  ctx.save();
-  ctx.shadowColor = "rgba(255,122,92,0.55)";
-  ctx.shadowBlur = 20 + Math.sin(t / 500) * 7;
-  if (trexHero.ready) {
-    const aspect = (trexHero.img.naturalHeight || 0.6 * trexHero.img.naturalWidth) / trexHero.img.naturalWidth;
-    const drawH = dinoSize;
-    const drawW = dinoSize / aspect;
-    ctx.drawImage(trexHero.img, dinoX - drawW / 2, dinoY - drawH / 2, drawW, drawH);
-  } else {
-    ctx.font = `${dinoSize * 0.6}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.fillText("🦖", dinoX, dinoY);
+  // swapping the in-scene sprite (see playCutscene()). Stops being drawn at
+  // all once dinoDefeated is set (session complete) — it doesn't make sense
+  // for it to still be calmly floating there after "Dreadnought neutralized."
+  let dinoX = 0, dinoY = 0;
+  if (!dinoDefeated) {
+    dinoProximity += ((dinoThreatLevel / DINO_THREAT_MAX) - dinoProximity) * 0.06;
+    const dinoHomeX = w * 0.63, dinoHomeY = h * 0.32;
+    const dinoCloseX = w * 0.5, dinoCloseY = h * 0.44;
+    dinoX = dinoHomeX + (dinoCloseX - dinoHomeX) * dinoProximity;
+    dinoY = dinoHomeY + (dinoCloseY - dinoHomeY) * dinoProximity + Math.sin(t / 900) * 6;
+    const dinoSize = h * 0.4 * (1 + dinoProximity * 0.4);
+    ctx.save();
+    ctx.shadowColor = "rgba(255,122,92,0.55)";
+    ctx.shadowBlur = 20 + Math.sin(t / 500) * 7;
+    if (trexHero.ready) {
+      const aspect = (trexHero.img.naturalHeight || 0.6 * trexHero.img.naturalWidth) / trexHero.img.naturalWidth;
+      const drawH = dinoSize;
+      const drawW = dinoSize / aspect;
+      ctx.drawImage(trexHero.img, dinoX - drawW / 2, dinoY - drawH / 2, drawW, drawH);
+    } else {
+      ctx.font = `${dinoSize * 0.6}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("🦖", dinoX, dinoY);
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   // Fire origin: the visible gun barrel in the background art (lower-left of
   // the window), so the projectile arc starts from a real part of the scene
@@ -1135,6 +1141,7 @@ function nextRound() {
     const hits = salvoMeter.querySelectorAll("span.lit").length;
     endSummary.textContent = `${hits} of ${SESSION_WORDS.length} direct hits, Commander.`;
     playArea.style.display = "none";
+    dinoDefeated = true; // stop drawing it in the ambient scene — it doesn't belong there anymore
     // The defeated clip gets its full-screen moment before the end screen
     // (with the return-to-base button) appears underneath it.
     playCutscene(trexDefeated, 2600).then(() => {

@@ -170,6 +170,15 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   `#endScreen` underneath it, rather than showing both at once — the static
   `<img class="end-gif">` that used to sit on the end screen itself was
   removed since the cutscene now serves that role.
+- **The ambient dino stops being drawn once the session ends.** A `dinoDefeated`
+  flag (set `true` in `nextRound()`'s end-of-session branch, right before the
+  defeated cutscene plays) guards the whole ambient-dino block in `drawScene()`
+  — without it, the idle `trex-hero.png` sprite kept calmly floating in the
+  window behind `#endScreen`, which read as a continuity error right after
+  "Dreadnought neutralized!" (Erica caught this: "Would have to remove the
+  Dino vector after 'neutralization'"). `dinoX`/`dinoY` still default to `0, 0`
+  outside the guard since the FX-overlay code later in the same function
+  references them for the fire-projectile arc.
 - Dispatch briefings (`POST /api/game/dispatch`) are generated via the Claude API
   (`claude-haiku-4-5-20251001` — same model Word Helper's vision calls use, same
   `ANTHROPIC_API_KEY` secret) constrained to the current round's session word pool,
