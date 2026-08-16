@@ -6,6 +6,7 @@
  *   TUTOR_KV            - KV namespace (shared with TutorHub)
  *   AZURE_SPEECH_KEY    - encrypted secret, Azure Speech resource key (reused from TutorHub TTS)
  *   AZURE_SPEECH_REGION - plain text var, e.g. "eastus" (must match the TutorHub Azure Speech resource's region)
+ *   ANTHROPIC_API_KEY   - encrypted secret, Claude API key (Word Helper's vision calls)
  *
  * Route: POST /api/sight-word/score
  *   multipart/form-data:
@@ -24,6 +25,23 @@
  *   Updates reading:dustin:words:{word}.spelling{correct,attempts} and appends to
  *   today's session log with drillType "spelling".
  *   Returns { correct, correctSpelling }.
+ *
+ * Route: POST /api/word-helper/analyze
+ *   multipart/form-data: image - a photo/screenshot of a word (or words) Dustin is
+ *   stuck on. Sends the image to Claude's vision API (ANTHROPIC_API_KEY) in one call
+ *   asking it to: find the readable word(s) in the photo (just the one if it's
+ *   circled/highlighted/the only text, otherwise up to 6, most-prominent first), and
+ *   for each return a kid-friendly one-sentence definition plus a spelled syllable
+ *   breakdown (grapheme chunks, same style as the reading drill's — not phonemes).
+ *   Returns { words: [{ word, definition, syllables }] }. No KV writes here — that
+ *   only happens once a word is actually selected, via /api/word-helper/log.
+ *
+ * Route: POST /api/word-helper/log
+ *   JSON body: { word }. Called when Dustin taps a detected word to actually look at
+ *   it — records to reading:dustin:words:{word}.wordHelper{timesLookedUp} and appends
+ *   today's session log with drillType "word-helper" (no correct/incorrect — this
+ *   isn't scored). Kept separate from /analyze so only words he actually opens count,
+ *   not every word Claude happened to detect in a busier photo.
  *
  * Route: GET /api/tts?word=<word>&rate=slow|normal&phonemes=<space-separated SAPI codes>
  *   Returns audio/mpeg — spoken via Azure TTS (reuses the same Speech resource as
@@ -80,6 +98,14 @@ export default {
 
     if (url.pathname === "/api/spelling/score" && request.method === "POST") {
       return withCors(await handleSpellingScore(request, env));
+    }
+
+    if (url.pathname === "/api/word-helper/analyze" && request.method === "POST") {
+      return withCors(await handleWordHelperAnalyze(request, env));
+    }
+
+    if (url.pathname === "/api/word-helper/log" && request.method === "POST") {
+      return withCors(await handleWordHelperLog(request, env));
     }
 
     if (url.pathname === "/api/tts" && request.method === "GET") {
@@ -308,6 +334,154 @@ async function handleSpellingScore(request, env) {
     console.error("Spelling score error:", err && err.message);
     return jsonResponse({ error: "Scoring failed", detail: err && err.message }, 500);
   }
+}
+
+// System prompt for Claude's vision call — kept strict about JSON-only output since
+// the Worker parses the response directly with no free-text fallback.
+const WORD_HELPER_SYSTEM_PROMPT = `You help build a reading-support tool for a young child who is learning to read. You will be shown a photo of text (a worksheet, book page, sign, or screenshot) and must respond with ONLY valid JSON — no markdown code fences, no commentary before or after — matching exactly this shape:
+
+{"words": [{"word": "example", "definition": "A short, simple sentence a 6-9 year old can understand, explaining what the word means.", "syllables": ["ex", "am", "ple"]}]}
+
+Rules:
+- Only include actual words a child might need help with — skip numbers, punctuation-only tokens, and stray single letters (unless the letter is a real word on its own, like "a" or "I").
+- If one word is circled, highlighted, underlined, or is clearly the only/primary text in the photo, return just that single word.
+- Otherwise return up to 6 of the most prominent words, most prominent first.
+- "definition" must be exactly one short, plain sentence — no jargon, and never use the word itself (or an obvious variant of it) inside its own definition.
+- "syllables" is the word split into spelled syllable chunks (not phonetic symbols), e.g. "circumstance" -> ["cir", "cum", "stance"]. For a one-syllable word, return a single-element array containing the whole word.
+- If you can't find any readable words in the image, return {"words": []}.`;
+
+async function handleWordHelperAnalyze(request, env) {
+  try {
+    const formData = await request.formData();
+    const image = formData.get("image");
+    if (!image) {
+      return jsonResponse({ error: "Missing image" }, 400);
+    }
+
+    const apiKey = (env.ANTHROPIC_API_KEY || "").trim();
+    if (!apiKey) {
+      return jsonResponse({ error: "Missing ANTHROPIC_API_KEY binding" }, 500);
+    }
+
+    const mediaType = (image.type || "image/jpeg").split(";")[0] || "image/jpeg";
+    const buffer = await image.arrayBuffer();
+    const base64 = arrayBufferToBase64(buffer);
+
+    let res;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1024,
+          system: WORD_HELPER_SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+                { type: "text", text: "Here is the photo. Respond with only the JSON described in your instructions." },
+              ],
+            },
+          ],
+        }),
+      });
+    } catch (networkErr) {
+      console.error("Anthropic API network error:", networkErr.message);
+      throw new Error(`Anthropic API network error: ${networkErr.message}`);
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Anthropic API non-OK response:", res.status, errText);
+      return jsonResponse({ error: "Word Helper analysis failed", detail: errText }, 502);
+    }
+
+    const data = await res.json();
+    const rawText = (data.content && data.content[0] && data.content[0].text) || "";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(stripJsonFences(rawText));
+    } catch (parseErr) {
+      console.error("Word Helper: couldn't parse Claude response as JSON:", rawText);
+      return jsonResponse({ error: "Couldn't understand that photo — try again with just the word in view." }, 502);
+    }
+
+    const words = Array.isArray(parsed.words)
+      ? parsed.words
+          .slice(0, 6)
+          .map((w) => ({
+            word: (w.word || "").toString().trim().toLowerCase(),
+            definition: (w.definition || "").toString().trim(),
+            syllables: Array.isArray(w.syllables) ? w.syllables.map((s) => s.toString().toLowerCase()) : [],
+          }))
+          .filter((w) => w.word)
+      : [];
+
+    return jsonResponse({ words });
+  } catch (err) {
+    console.error("Word Helper analyze error:", err && err.message);
+    return jsonResponse({ error: "Word Helper analysis failed", detail: err && err.message }, 500);
+  }
+}
+
+function stripJsonFences(text) {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return fenced ? fenced[1] : trimmed;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000; // avoid call-stack blowup from String.fromCharCode(...bytes) on large images
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function handleWordHelperLog(request, env) {
+  try {
+    const body = await request.json();
+    const word = (body.word || "").toString().trim().toLowerCase();
+    if (!word) {
+      return jsonResponse({ error: "Missing word" }, 400);
+    }
+
+    await recordWordHelperLookup(env.TUTOR_KV, word);
+
+    return jsonResponse({ ok: true });
+  } catch (err) {
+    console.error("Word Helper log error:", err && err.message);
+    return jsonResponse({ error: "Failed to log lookup", detail: err && err.message }, 500);
+  }
+}
+
+async function recordWordHelperLookup(kv, word) {
+  const key = `${KV_PREFIX}words:${word}`;
+  const existingRaw = await kv.get(key);
+  const existing = existingRaw
+    ? JSON.parse(existingRaw)
+    : {
+        reading: { attempts: 0, correct: 0, incorrect: 0, avgLatencyMs: null, latencySamples: [] },
+        spelling: { correct: 0, attempts: 0 },
+      };
+
+  existing.wordHelper = existing.wordHelper || { timesLookedUp: 0 };
+  existing.wordHelper.timesLookedUp += 1;
+  existing.wordHelper.lastLookedUpAt = new Date().toISOString();
+
+  await kv.put(key, JSON.stringify(existing));
+
+  // Also append to today's session log
+  await appendSessionLog(kv, word, null, null, "word-helper");
 }
 
 async function handleTTS(request, env) {
