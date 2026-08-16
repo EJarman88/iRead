@@ -54,9 +54,10 @@
  * Route: GET /api/sight-word/session-words
  *   Public, no gate. Returns { words: string[], source } — the word set for a drill
  *   session, pulled from whatever the admin has loaded into reading:dustin:wordlist:*.
- *   No adaptive/spaced-repetition selection yet (that's a later build step per the
- *   project doc) — just a random sample across everything loaded so far. Falls back
- *   to a small built-in default list if nothing's been loaded yet.
+ *   Adaptively weighted (see computeWordWeight) by reading:dustin:words:{word}'s
+ *   accumulated reading+spelling accuracy — struggling words come up more, mastered
+ *   ones taper off but don't disappear, new words get a fair shot. Falls back to a
+ *   small built-in default list if nothing's been loaded yet.
  *
  * Route: GET /api/admin/wordlist
  *   Requires header X-Admin-Passcode matching the ADMIN_PASSCODE secret binding.
@@ -69,11 +70,12 @@
  *
  * Route: GET /api/passage/session
  *   Public, no gate. Returns { passages: [{ id, text, question: { prompt, options,
- *   correctIndex } }] } — PASSAGE_SESSION_COUNT random passages from the built-in
- *   PASSAGES bank (short, original, 6th/7th-grade-level — grade-matched to Dustin's
- *   actual curriculum per TutorHub, not early-elementary content). The comprehension
- *   answer key ships with the payload and is checked client-side — low-stakes for a
- *   single child's reading practice, not worth a second round trip.
+ *   correctIndex } }] } — PASSAGE_SESSION_COUNT passages from the built-in PASSAGES
+ *   bank (short, original, 6th/7th-grade-level — grade-matched to Dustin's actual
+ *   curriculum per TutorHub, not early-elementary content), adaptively weighted by
+ *   reading:dustin:passages:{id}'s bestAccuracy the same way session-words is. The
+ *   comprehension answer key ships with the payload and is checked client-side —
+ *   low-stakes for a single child's reading practice, not worth a second round trip.
  *
  * Route: POST /api/passage/score
  *   multipart/form-data: audio (16kHz mono PCM WAV, same encoding as sight-word
@@ -251,13 +253,49 @@ function parseWordList(rawText) {
   return words;
 }
 
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+// Adaptive selection — replaces plain shuffling. Each candidate (word or passage)
+// gets a weight from how much practice it needs: never-attempted items get a fair,
+// moderately-high shot at being introduced; struggling items (low accuracy) come up
+// more often; mastered items taper off but never to zero, so there's still light
+// review instead of a word disappearing forever the moment it's nailed once.
+const ADAPTIVE_NEW_ITEM_WEIGHT = 1.5;
+const ADAPTIVE_MIN_WEIGHT = 0.3;
+const ADAPTIVE_MAX_WEIGHT = 3;
+
+function computeWordWeight(record) {
+  const reading = record && record.reading;
+  const spelling = record && record.spelling;
+  const attempts = ((reading && reading.attempts) || 0) + ((spelling && spelling.attempts) || 0);
+  if (attempts === 0) return ADAPTIVE_NEW_ITEM_WEIGHT;
+  const correct = ((reading && reading.correct) || 0) + ((spelling && spelling.correct) || 0);
+  const accuracy = correct / attempts;
+  return ADAPTIVE_MIN_WEIGHT + (1 - accuracy) * (ADAPTIVE_MAX_WEIGHT - ADAPTIVE_MIN_WEIGHT);
+}
+
+function computePassageWeight(record) {
+  if (!record || !record.attempts) return ADAPTIVE_NEW_ITEM_WEIGHT;
+  const accuracy = (record.bestAccuracy || 0) / 100; // bestAccuracy is 0-100, not 0-1
+  return ADAPTIVE_MIN_WEIGHT + (1 - accuracy) * (ADAPTIVE_MAX_WEIGHT - ADAPTIVE_MIN_WEIGHT);
+}
+
+// Weighted sampling without replacement — picks `count` items, each draw
+// proportional to remaining weight among what's left. O(count * items.length),
+// fine at this app's scale (low hundreds of words, a handful of passages).
+function weightedSampleWithoutReplacement(items, weights, count) {
+  const pool = items.map((item, i) => ({ item, weight: Math.max(weights[i], 0.0001) }));
+  const selected = [];
+  while (selected.length < count && pool.length) {
+    const totalWeight = pool.reduce((sum, p) => sum + p.weight, 0);
+    let r = Math.random() * totalWeight;
+    let idx = 0;
+    for (; idx < pool.length - 1; idx++) {
+      r -= pool[idx].weight;
+      if (r <= 0) break;
+    }
+    selected.push(pool[idx].item);
+    pool.splice(idx, 1);
   }
-  return a;
+  return selected;
 }
 
 async function handleSessionWords(request, env) {
@@ -286,9 +324,10 @@ async function handleSessionWords(request, env) {
       return jsonResponse({ words: DEFAULT_SESSION_WORDS, source: "default" });
     }
 
-    // Bootstrap phase: no adaptive/spaced-repetition selection yet (that's a later
-    // build step) — just a random sample across everything the admin has loaded.
-    const selected = shuffle(allWords).slice(0, Math.min(SESSION_WORD_COUNT, allWords.length));
+    const records = await Promise.all(allWords.map((w) => env.TUTOR_KV.get(`${KV_PREFIX}words:${w}`)));
+    const weights = records.map((raw) => computeWordWeight(raw ? JSON.parse(raw) : null));
+    const selected = weightedSampleWithoutReplacement(allWords, weights, Math.min(SESSION_WORD_COUNT, allWords.length));
+
     return jsonResponse({ words: selected, source: "wordlist" });
   } catch (err) {
     console.error("Session words error:", err && err.message);
@@ -297,7 +336,9 @@ async function handleSessionWords(request, env) {
 }
 
 async function handlePassageSession(request, env) {
-  const selected = shuffle(PASSAGES).slice(0, Math.min(PASSAGE_SESSION_COUNT, PASSAGES.length));
+  const records = await Promise.all(PASSAGES.map((p) => env.TUTOR_KV.get(`${KV_PREFIX}passages:${p.id}`)));
+  const weights = records.map((raw) => computePassageWeight(raw ? JSON.parse(raw) : null));
+  const selected = weightedSampleWithoutReplacement(PASSAGES, weights, Math.min(PASSAGE_SESSION_COUNT, PASSAGES.length));
   return jsonResponse({
     passages: selected.map((p) => ({ id: p.id, text: p.text, question: p.question })),
   });
