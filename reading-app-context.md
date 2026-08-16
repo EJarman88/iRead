@@ -16,21 +16,43 @@
 ## What this app is
 
 A static site (GitHub Pages: `index.html`, `reading.html`, `spelling.html`,
-`word-helper.html`, `passage.html`, `apex-armada.html`, `admin.html`) backed by one
-Cloudflare Worker (`worker.js`) and one shared KV namespace (`TUTOR_KV`, prefix
-`reading:dustin:`). No build step, no framework — plain HTML/CSS/JS per page,
-following the same visual conventions (Baloo 2 font, theme-appropriate background,
-rounded glowing panels). The Worker is deployed by hand (paste into the Cloudflare
-dashboard, or `wrangler deploy` with a locally-created `wrangler.toml` — none is
-checked in); only the static site auto-deploys, via `.github/workflows/static.yml`
-on push to `main`.
+`word-helper.html`, `passage.html`, `apex-armada.html`, `screener.html`,
+`admin.html`) backed by one Cloudflare Worker (`worker.js`) and one shared KV
+namespace (`TUTOR_KV`, prefix `reading:dustin:`). No build step, no framework —
+plain HTML/CSS/JS per page, following the same visual conventions (Baloo 2 font,
+theme-appropriate background, rounded glowing panels) — except `screener.html` and
+`admin.html`, which are deliberately calmer/plainer (see below). The static site
+auto-deploys via `.github/workflows/static.yml` on push to `main`. The Worker's
+deploy story is in flux: `wrangler.jsonc` (checked in) targets Cloudflare Workers
+Builds' Git integration, which auto-deploys `worker.js` on push IF that integration
+has actually been connected on the Cloudflare dashboard side — the file alone
+doesn't guarantee it's live. Confirm which is true before assuming a merge to
+`main` alone puts new Worker code in production; the safe fallback is still a
+manual paste into the dashboard.
 
-Five features exist for Dustin, all reachable from `index.html`:
+Five drills exist for Dustin, all reachable from `index.html`:
 - `reading.html` — say-the-word, scored via Azure Pronunciation Assessment (phoneme-level).
 - `spelling.html` — hear-it-type-it, scored by exact string match.
 - `word-helper.html` — photograph a stuck word, get a definition + syllable breakdown via Claude's vision API.
 - `passage.html` — read a short passage aloud + answer a comprehension question.
 - `apex-armada.html` — naval-vs-dino spelling minigame.
+
+Plus one non-drill tool, linked from `index.html` via a deliberately quieter
+secondary link (not a drill-picker button):
+- `screener.html` ("Sound Check") — a phonemic awareness screener (rhyme judgment,
+  first/last sound isolation, blending, segmentation). Built while Dustin's reading
+  difficulty was still undiagnosed and awaiting formal evaluation. Explicitly NOT
+  gamified and NOT a diagnostic instrument — only the rhyme task is auto-scored;
+  the three production tasks just capture a plain, unbiased transcript (see
+  `transcribeAudio()` in `worker.js` for why they're not auto-graded) for a parent
+  to review or bring to an evaluator. No stars, no score shown to Dustin.
+
+And one parent-facing surface:
+- `admin.html` — passcode-gated. Word-list intake (paste/upload vocab, no redeploy
+  needed) plus a Progress panel (`GET /api/admin/progress`) that aggregates
+  everything already being recorded: recent activity by drill type, words needing
+  practice vs. mastered, passage performance, and full Sound Check sessions with
+  transcripts. Read-only rollup — doesn't change what gets recorded anywhere else.
 
 ## KV shape
 
@@ -51,6 +73,12 @@ Five features exist for Dustin, all reachable from `index.html`:
   attempts, latencyMs}), dispatchesShown[], duration, score }`. `score` and
   `duration` are cosmetic only — never shown to Dustin as a grade, never used for
   word selection.
+- `reading:dustin:screener:{timestamp}` — one Sound Check session: `{ sessionId,
+  rhymeAnswers[] ({id, wordA, wordB, correctAnswer, givenAnswer}),
+  isolationResponses[] ({id, word, target, transcript}), blendingResponses[] ({id,
+  answer, transcript}), segmentationResponses[] ({id, word, transcript}) }`. Stored
+  verbatim, no derived scoring beyond what `admin.html` computes on read (rhyme
+  correct count) — this is a record for review, not a mastery bucket.
 
 ## Word selection
 
