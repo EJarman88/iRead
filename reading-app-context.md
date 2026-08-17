@@ -179,6 +179,15 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   Dino vector after 'neutralization'"). `dinoX`/`dinoY` still default to `0, 0`
   outside the guard since the FX-overlay code later in the same function
   references them for the fire-projectile arc.
+- **The three cutscene gifs are cropped near-full-frame from their 1280×720
+  source videos, not tight around the dino.** The first extraction pass
+  cropped in tight on just the dino's head/torso (a ~720×435 region), which
+  read as an unwanted zoom once the clip filled the whole screen via
+  `object-fit: cover` (Erica: "The video zooms in too much- should we make
+  the view landscape?"). Re-extracted at the source video's own framing
+  instead — full cockpit, gun barrels, dashboard/HUD all visible, same as
+  `cockpit-bg.jpg`'s composition. See `assets/apex-armada/README.md` for the
+  re-crop note if these get regenerated again.
 - Dispatch briefings (`POST /api/game/dispatch`) are generated via the Claude API
   (`claude-haiku-4-5-20251001` — same model Word Helper's vision calls use, same
   `ANTHROPIC_API_KEY` secret) constrained to the current round's session word pool,

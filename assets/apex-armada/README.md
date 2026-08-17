@@ -26,6 +26,14 @@ in-scene dino sprite — so any replacement for these three specifically should
 be composed to work cropped edge-to-edge at whatever aspect ratio the
 player's screen happens to be, not framed like a small sprite.
 
+The three clips are cropped from the **full 1280×720 landscape source
+videos** (gun barrels, dashboard/HUD, and starfield all visible), not just
+the dino's head/torso — an earlier pass over-cropped tight around the dino's
+face, which read as an unintentional zoom once it filled the whole screen
+via `object-fit: cover`. Re-crop from the source video with the same
+composition (near-full-frame, no tight zoom) if these ever get regenerated.
+
 Keep file sizes modest — these load over the same connection as everything
 else on a phone, no lazy-loading/CDN here. (`cockpit-bg.jpg` was converted
-from a 1.2MB PNG to an ~80KB JPEG since it has no transparency needs.)
+from a 1.2MB PNG to an ~80KB JPEG since it has no transparency needs. The
+three cutscene gifs run ~550-700KB each at their current wider framing.)
