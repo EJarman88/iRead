@@ -193,6 +193,25 @@ wrapper — one word pool, one weighting function, not a separate one per interf
   `ANTHROPIC_API_KEY` secret) constrained to the current round's session word pool,
   and validated token-by-token against that pool before being shown — regenerated on
   failure, with a deterministic template fallback that's trivially always valid.
+- **`POST /api/game/word-hint` (Definition + Sound It Out) now retries and has a
+  non-AI fallback, matching dispatch's resilience.** It originally had neither:
+  a single failed/non-JSON Claude response (or a missing `ANTHROPIC_API_KEY`
+  secret) returned `{definition: null, syllables: null}` with no retry —
+  unlike dispatch, which always shows *something* via its template fallback.
+  Erica reported this as "the definitions and sound it out buttons don't
+  work." Fixed on both sides: the worker now retries generation up to
+  `WORD_HINT_MAX_ATTEMPTS` (3) and falls back to `heuristicSyllables()` (a
+  vowel-group splitter, no AI needed) whenever Claude doesn't return usable
+  syllables — so Sound It Out always produces a breakdown even without the
+  API key. Definition has no honest non-AI substitute, so it still reports
+  unavailable when the key is missing/failing — **the API key should still be
+  verified in the Cloudflare dashboard for the `iread-apex` worker** (same
+  place `AZURE_SPEECH_KEY`/`ADMIN_PASSCODE` were set after the migration off
+  the old manually-deployed worker) if definitions keep coming back empty.
+  Also fixed a client-side bug in `fetchWordHint()`: it cached a *failed*
+  result exactly like a successful one, so once one button's call failed for
+  a round, the other help button replayed that same failure instead of
+  getting its own attempt — only successful results are cached now.
 - No visible timers, no scores-as-grades — same design wall as the rest of the app.
   `latencyMs` is tracked per attempt but never rendered client-side.
 - **One deliberate deviation from the app's no-loss-state rule, added after real
