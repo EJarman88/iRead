@@ -830,6 +830,63 @@ Rules:
 - "definition" is exactly one short, plain sentence — no jargon.
 - "syllables" is the word split into spelled syllable chunks (not phonetic symbols), e.g. "circumstance" -> ["cir", "cum", "stance"]. For a one-syllable word, return a single-element array containing the whole word.`;
 
+const WORD_HINT_MAX_ATTEMPTS = 3;
+
+// Vowel-group heuristic — not linguistically perfect, but a reasonable "sound
+// it out" chunking with zero dependencies, used whenever Claude isn't
+// available or doesn't return usable syllables. Unlike the definition (which
+// has no safe non-AI substitute), a "close enough" syllable split is exactly
+// what the Sound It Out button needs, so this always gives Dustin something.
+function heuristicSyllables(word) {
+  const w = word.toLowerCase();
+  const groups = w.match(/[^aeiouy]*[aeiouy]+/g);
+  if (!groups || groups.length <= 1) return [w];
+  const consumed = groups.join("").length;
+  const remainder = w.slice(consumed);
+  const result = groups.slice();
+  result[result.length - 1] += remainder;
+  return result;
+}
+
+async function callClaudeForWordHint(apiKey, word) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: DISPATCH_MODEL,
+      max_tokens: 200,
+      system: WORD_HINT_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: `The word is: "${word}"` }],
+    }),
+  });
+
+  if (!res.ok) {
+    console.error("Word hint Anthropic API non-OK response:", res.status, await res.text());
+    return null;
+  }
+
+  const data = await res.json();
+  const block = Array.isArray(data.content) ? data.content.find((c) => c.type === "text") : null;
+  const rawText = block && block.text ? block.text : "";
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stripJsonFences(rawText));
+  } catch (parseErr) {
+    console.error("Word hint: couldn't parse Claude response as JSON:", rawText);
+    return null;
+  }
+
+  return {
+    definition: (parsed.definition || "").toString().trim() || null,
+    syllables: Array.isArray(parsed.syllables) ? parsed.syllables.map((s) => s.toString().toLowerCase()) : null,
+  };
+}
+
 // Stateless — no KV write. This is a help/hint lookup, not a mastery event, so it
 // doesn't affect word selection or count as an attempt.
 async function handleGameWordHint(request, env) {
@@ -841,45 +898,27 @@ async function handleGameWordHint(request, env) {
     }
 
     const apiKey = (env.ANTHROPIC_API_KEY || "").trim();
-    if (!apiKey) {
-      return jsonResponse({ definition: null, syllables: null });
+    let hint = null;
+    if (apiKey) {
+      for (let attempt = 0; attempt < WORD_HINT_MAX_ATTEMPTS; attempt++) {
+        try {
+          const result = await callClaudeForWordHint(apiKey, word);
+          if (result && (result.definition || (result.syllables && result.syllables.length))) {
+            hint = result;
+            break;
+          }
+        } catch (err) {
+          console.error("Word hint generation attempt failed:", err && err.message);
+        }
+      }
     }
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: DISPATCH_MODEL,
-        max_tokens: 200,
-        system: WORD_HINT_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: `The word is: "${word}"` }],
-      }),
-    });
-
-    if (!res.ok) {
-      console.error("Word hint Anthropic API non-OK response:", res.status, await res.text());
-      return jsonResponse({ definition: null, syllables: null });
-    }
-
-    const data = await res.json();
-    const block = Array.isArray(data.content) ? data.content.find((c) => c.type === "text") : null;
-    const rawText = block && block.text ? block.text : "";
-
-    let parsed;
-    try {
-      parsed = JSON.parse(stripJsonFences(rawText));
-    } catch (parseErr) {
-      console.error("Word hint: couldn't parse Claude response as JSON:", rawText);
-      return jsonResponse({ definition: null, syllables: null });
-    }
-
+    // Whatever Claude gave us (possibly nothing, possibly just a definition
+    // with no syllables), the syllable heuristic can always fill the gap —
+    // Sound It Out should never come back completely empty.
     return jsonResponse({
-      definition: (parsed.definition || "").toString().trim() || null,
-      syllables: Array.isArray(parsed.syllables) ? parsed.syllables.map((s) => s.toString().toLowerCase()) : null,
+      definition: hint && hint.definition ? hint.definition : null,
+      syllables: hint && hint.syllables && hint.syllables.length ? hint.syllables : heuristicSyllables(word),
     });
   } catch (err) {
     console.error("Game word hint error:", err && err.message);

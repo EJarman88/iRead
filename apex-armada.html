@@ -1106,8 +1106,14 @@ async function fetchWordHint() {
     body: JSON.stringify({ word }),
   });
   const data = await res.json();
-  wordHintCache = { word, definition: data.definition, syllables: data.syllables };
-  return wordHintCache;
+  const result = { word, definition: data.definition, syllables: data.syllables };
+  // Only cache a real answer — caching a failed/empty result would make the
+  // *other* help button replay that same failure for the rest of the round
+  // instead of getting its own fresh attempt.
+  if (result.definition || (result.syllables && result.syllables.length)) {
+    wordHintCache = result;
+  }
+  return result;
 }
 
 defineBtn.addEventListener("click", async () => {
